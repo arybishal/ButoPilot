@@ -68,15 +68,14 @@ This Roadmap defines the 9-phase engineering sequence (Phase 0 through Phase 8),
 
 | Phase | Title | Duration | Focus Area | Primary Artifact |
 | :--- | :--- | :--- | :--- | :--- |
-| **Phase 0** | Documentation & Architecture | **Current** | Specification, feasibility, ADRs, blueprints | 15 Core System Documents |
-| **Phase 1** | Foundation & Core Infrastructure | **2–3 Weeks** | Gradle modules, Room+SQLCipher, Hilt, Nav Shell | Modular Android Scaffold & Data Layer |
-| **Phase 2** | Profile Management & Actions | **2 Weeks** | Profile CRUD, detail tabs, action pipeline editor | Profile Domain & Configuration UI |
-| **Phase 3** | Automation Engine & Service | **3–4 Weeks** | WebView pool, JS bridge, variables, runner | Headless Automation Runtime |
-| **Phase 4** | Scheduling & Persistence | **2 Weeks** | WorkManager, AlarmManager, cron, boot recovery | Unattended Trigger & Recovery System |
-| **Phase 5** | Proxy & Network Isolation | **2–3 Weeks** | ProxyController, health check, VpnService | Per-profile Network Tunneling Engine |
-| **Phase 6** | Diagnostics & Diagnostics UI | **2 Weeks** | Log viewer, timeline, screenshots, backup | Telemetry, Inspection & Backup System |
-| **Phase 7** | Root Integration (Optional Path) | **1–2 Weeks** | `libsu`, iptables, root detection, hosts | Low-Level System Control Layer |
-| **Phase 8** | Hardening & Release Candidate | **2 Weeks** | Security audit, profiling, R8, RC builds | Production Signed Release Candidate |
+| **Phase 0** | Documentation & Architecture | **Complete** | Specification, feasibility, ADRs, blueprints | 15 Core System Documents |
+| **Phase 1** | Foundation & Core Infrastructure | **Complete** | Gradle modules, Room, Hilt, Navigation Shell | Modular Android Scaffold & Data Layer |
+| **Phase 2** | Profile Management & Actions | **Complete** | Profile CRUD, 4 Automation Modes, WebView Engine | Automation Core & Browser Execution |
+| **Phase 3** | Background Execution & Scheduling | **Complete** | Room Migration v2, AlarmManager, WorkManager, UI | Background Execution & Scheduling Engine |
+| **Phase 4** | Proxy & Network Isolation | **Next** | ProxyController, health check, VpnService | Per-profile Network Tunneling Engine |
+| **Phase 5** | Diagnostics & Telemetry | **Planned** | Log viewer, timeline, screenshots, backup | Telemetry, Inspection & Backup System |
+| **Phase 6** | Root Integration (Optional Path) | **Planned** | `libsu`, iptables, root detection, hosts | Low-Level System Control Layer |
+| **Phase 7** | Hardening & Release Candidate | **Planned** | Security audit, profiling, R8, RC builds | Production Signed Release Candidate |
 
 ---
 

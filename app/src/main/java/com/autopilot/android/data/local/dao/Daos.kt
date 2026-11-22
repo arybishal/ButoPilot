@@ -49,3 +49,49 @@ interface ExecutionHistoryDao {
     @Query("DELETE FROM execution_history")
     suspend fun clearAll()
 }
+
+@Dao
+interface ScheduleDao {
+    @Query("SELECT * FROM automation_schedules ORDER BY nextExecutionAt ASC, updatedAt DESC")
+    fun getAllFlow(): Flow<List<com.autopilot.android.data.local.entity.ScheduleEntity>>
+
+    @Query("SELECT * FROM automation_schedules ORDER BY nextExecutionAt ASC, updatedAt DESC")
+    suspend fun getAll(): List<com.autopilot.android.data.local.entity.ScheduleEntity>
+
+    @Query("SELECT * FROM automation_schedules WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): com.autopilot.android.data.local.entity.ScheduleEntity?
+
+    @Query("SELECT * FROM automation_schedules WHERE id = :id LIMIT 1")
+    fun getByIdFlow(id: String): Flow<com.autopilot.android.data.local.entity.ScheduleEntity?>
+
+    @Query("SELECT * FROM automation_schedules WHERE enabled = 1 AND nextExecutionAt IS NOT NULL AND nextExecutionAt <= :untilEpochMillis ORDER BY nextExecutionAt ASC")
+    suspend fun getPendingExecution(untilEpochMillis: Long): List<com.autopilot.android.data.local.entity.ScheduleEntity>
+
+    @Query("SELECT * FROM automation_schedules WHERE enabled = 1 AND nextExecutionAt IS NOT NULL ORDER BY nextExecutionAt ASC")
+    suspend fun getActiveScheduled(): List<com.autopilot.android.data.local.entity.ScheduleEntity>
+
+    @Query("SELECT * FROM automation_schedules WHERE status = 'RUNNING' OR status = 'STARTING'")
+    suspend fun getRunningOrStarting(): List<com.autopilot.android.data.local.entity.ScheduleEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdate(schedule: com.autopilot.android.data.local.entity.ScheduleEntity)
+
+    @Delete
+    suspend fun delete(schedule: com.autopilot.android.data.local.entity.ScheduleEntity)
+
+    @Query("DELETE FROM automation_schedules WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("UPDATE automation_schedules SET status = :status, nextExecutionAt = :nextExecutionAt, lastExecutionAt = :lastExecutionAt, lastError = :error, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateExecutionState(
+        id: String,
+        status: String,
+        nextExecutionAt: Long?,
+        lastExecutionAt: Long?,
+        error: String?,
+        updatedAt: Long = System.currentTimeMillis()
+    )
+
+    @Query("UPDATE automation_schedules SET enabled = :enabled, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateEnabled(id: String, enabled: Boolean, updatedAt: Long = System.currentTimeMillis())
+}

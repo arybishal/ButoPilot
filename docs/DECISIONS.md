@@ -23,6 +23,8 @@ This document records the architectural and technology decisions made for the **
 | [ADR-013](#adr-013-polymorphic-json-configuration-for-actions-with-room-typeconverters) | Polymorphic JSON Configuration for Actions with Room TypeConverters | Accepted | 2026-11-22 |
 | [ADR-014](#adr-014-offline-first-client-only-architecture-no-external-backend) | Offline-First, Client-Only Architecture (No External Backend) | Accepted | 2026-11-22 |
 | [ADR-015](#adr-015-minimum-sdk-26-android-80-oreo) | Minimum SDK 26 (Android 8.0 Oreo) | Accepted | 2026-11-22 |
+| [ADR-016](#adr-016-room-schema-migration-v1-to-v2-with-foreign-key-cascade-for-scheduling) | Room Schema Migration v1 to v2 with Foreign Key Cascade for Scheduling | Accepted | 2026-11-22 |
+| [ADR-017](#adr-017-dual-background-engine-alarmmanager-for-precision--workmanager-for-self-healing-reconciliation) | Dual Background Engine: AlarmManager for Precision & WorkManager for Self-Healing Reconciliation | Accepted | 2026-11-22 |
 
 ---
 
@@ -520,6 +522,62 @@ Set the minimum supported SDK version to **`minSdk = 26` (Android 8.0 Oreo)** an
   - Streamlined QA and testing surface by excluding obsolete platform versions.
 - **Negative:**
   - Drops support for legacy devices running Android 7.1 and lower (< 5% of global market share).
+
+---
+
+## ADR-016: Room Schema Migration v1 to v2 with Foreign Key Cascade for Scheduling
+
+### Status
+**Accepted**
+
+### Context
+Phase 3 introduces automated background scheduling requiring persistent storage of `automation_schedules`. The table requires a strict relationship to `automation_profiles` such that deleting an automation profile immediately cascades and purges all associated schedules, eliminating dangling orphaned tasks. At the same time, existing installed users (and automated tests) from Phase 2 have existing profiles and execution history that must not be lost or corrupted during an upgrade.
+
+### Decision
+Implement a deterministic Room manual migration `MIGRATION_1_2`:
+1. Bump database version from `1` to `2`.
+2. Add `automation_schedules` table with `id` (INTEGER PRIMARY KEY AUTOINCREMENT), `profile_id` (TEXT NOT NULL, FOREIGN KEY REFERENCES `automation_profiles(id)` ON DELETE CASCADE), `name`, `type`, `recurrence_rule`, `target_time_millis`, `repeat_interval_millis`, `max_duration_seconds`, `is_enabled`, `last_run_time_millis`, `next_run_time_millis`, `status`, `created_at`, `updated_at`.
+3. Add performance and foreign key index `index_automation_schedules_profile_id` and composite query index `index_automation_schedules_next_run_status` on `(is_enabled, status, next_run_time_millis)`.
+4. Validate the migration via automated Room integration test `DatabaseMigrationTest` and on-device runtime upgrade testing.
+
+### Consequences
+- **Positive:**
+  - Zero data loss for existing Phase 2 profiles and execution records.
+  - Foreign key cascade guarantees referential integrity: profile deletion automatically cleans up schedules.
+  - Indexed queries for upcoming scheduled jobs execute in O(log N) time.
+- **Negative:**
+  - Requires maintaining explicit SQL DDL migration scripts across database schema bumps.
+
+---
+
+## ADR-017: Dual Background Engine: AlarmManager for Precision & WorkManager for Self-Healing Reconciliation
+
+### Status
+**Accepted**
+
+### Context
+Android background execution faces strict Doze and App Standby power management restrictions. `WorkManager` provides robust battery-conscious deferrable job execution with constraint awareness, but lacks exact second-precision triggering when device is in Doze. `AlarmManager` with `setExactAndAllowWhileIdle()` provides exact wall-clock triggering across Doze, but does not offer built-in persistence, retry mechanics, or automatic reboot rescheduling. Furthermore, if a process dies mid-execution, a schedule can remain stuck in a `STARTING` or `RUNNING` state.
+
+### Decision
+Adopt a hybrid, self-healing dual background architecture:
+1. **Precision Dispatching (`AlarmManager`):**
+   - Use `AlarmManager.setExactAndAllowWhileIdle(RTC_WAKEUP, ...)` when `canScheduleExactAlarms()` is granted, with graceful fallback to `setAndAllowWhileIdle()`.
+   - Distinct `PendingIntent` request codes derived from schedule IDs ensure no alarm collision.
+   - Handled by `ScheduleReceiver` which coordinates with `AutomationCoordinator` to check concurrency limits before launching `AutomationService`.
+2. **Persistence & Lifecycle Recovery (`BootCompletedReceiver`):**
+   - Listen for `ACTION_BOOT_COMPLETED` and `ACTION_MY_PACKAGE_REPLACED`.
+   - Re-arm all active upcoming alarms from Room database.
+   - Reconcile stale executions stuck in `STARTING`/`RUNNING` to `CANCELLED`/`FAILED` and advance passed recurrence windows.
+3. **Periodic Maintenance (`WorkManager`):**
+   - Register a periodic 2-hour `ScheduleReconciliationWorker` as a safety net to detect missed alarms or orphaned executions.
+
+### Consequences
+- **Positive:**
+  - Exact time execution when armed, surviving deep Doze mode.
+  - Completely self-healing: crashes, force stops, or device reboots do not leave persistent zombie states.
+  - Fully compliant with Android 14+ exact alarm policies and Android 15 foreground service limits.
+- **Negative:**
+  - Requires handling two distinct background subsystems (`AlarmManager` and `WorkManager`) and registering multiple receivers.
 
 ---
 *Document maintained by BAutoPilot Core Architecture Team.*

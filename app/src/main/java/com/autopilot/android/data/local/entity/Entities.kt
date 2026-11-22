@@ -44,3 +44,39 @@ data class ExecutionHistoryEntity(
     val status: String,
     val errorMessage: String?
 )
+
+@Entity(
+    tableName = "automation_schedules",
+    foreignKeys = [
+        androidx.room.ForeignKey(
+            entity = ProfileEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["profileId"],
+            onDelete = androidx.room.ForeignKey.CASCADE
+        )
+    ],
+    indices = [
+        androidx.room.Index(value = ["profileId"]),
+        androidx.room.Index(value = ["enabled"]),
+        androidx.room.Index(value = ["nextExecutionAt"]),
+        androidx.room.Index(value = ["status"])
+    ]
+)
+data class ScheduleEntity(
+    @PrimaryKey val id: String,
+    val profileId: String,
+    val profileName: String,
+    val scheduleName: String,
+    val scheduleType: String,
+    val recurrenceRule: String,
+    val targetEpochMillis: Long,
+    val nextExecutionAt: Long?,
+    val lastExecutionAt: Long?,
+    val timezoneId: String,
+    val enabled: Boolean,
+    val maxDurationMinutes: Int?,
+    val status: String,
+    val lastError: String?,
+    val createdAt: Long,
+    val updatedAt: Long
+)

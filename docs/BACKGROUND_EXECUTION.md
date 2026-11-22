@@ -884,3 +884,32 @@ flowchart TD
 7. [ ] **Main Thread Confinement**: Ensure all WebView construction, evaluation, and destruction operations run strictly on `Dispatchers.Main`.
 8. [ ] **Memory Defense**: Cap simultaneous headless WebView instances at 2, and invoke `destroy()` in `finally` blocks.
 9. [ ] **Battery Whitelist Fallback**: Provide an in-app flow guiding users on Samsung/Xiaomi devices to exempt BAutoPilot from OEM background killers.
+
+---
+
+## 11. Implemented Phase 3 Background Execution & Scheduling Architecture
+
+In Phase 3, the complete background execution and task scheduling infrastructure was implemented and verified:
+
+### 11.1 Core Components & Data Flow
+1. **`AutomationScheduler`**:
+   - Manages exact alarms with `AlarmManager.setExactAndAllowWhileIdle(RTC_WAKEUP, ...)` when `canScheduleExactAlarms()` is true, and inexact `setAndAllowWhileIdle()` fallback.
+   - Computes unique request codes per schedule ID.
+   - Provides `schedule(schedule)`, `cancel(scheduleId)`, and `rescheduleAll()`.
+2. **`ScheduleReceiver` (`BroadcastReceiver`)**:
+   - Registered for `com.autopilot.android.action.TRIGGER_SCHEDULE`.
+   - Checks `AutomationCoordinator.canStartSession()` concurrency limits.
+   - Transitions schedule status to `RUNNING` and launches `AutomationService` via `context.startForegroundService()`.
+   - Automatically computes and schedules the next recurrence window via `ScheduleCalculator`.
+   - Posts notifications through `ScheduleNotificationManager` (Channel ID: `autopilot_schedule_channel`, Importance: DEFAULT).
+3. **`BootCompletedReceiver` (`BroadcastReceiver`)**:
+   - Registered for `android.intent.action.BOOT_COMPLETED` and `android.intent.action.MY_PACKAGE_REPLACED`.
+   - Reconciles stale `STARTING`/`RUNNING` executions to `CANCELLED`/`FAILED`.
+   - Re-arms all active upcoming alarms in `AlarmManager`.
+4. **`ScheduleReconciliationWorker` (`CoroutineWorker`)**:
+   - Periodic 2-hour WorkManager maintenance task registered via `ExistingPeriodicWorkPolicy.KEEP`.
+   - Re-scans active schedules to ensure alarms remain armed and detects missed executions.
+5. **`ScheduleCalculator` & `ScheduleValidator`**:
+   - Pure domain calculation for One-Time, Daily, Weekdays, Weekly, and Monthly schedules.
+   - Enforces month-end boundary clamping (e.g., Jan 31 -> Feb 28/29) via `YearMonth.from(zonedDateTime)`.
+   - Validates future dates, profile existence, timezone strings, and duration boundaries.

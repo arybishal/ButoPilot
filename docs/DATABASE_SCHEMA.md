@@ -789,3 +789,50 @@ For disaster recovery and user data portability:
    ```
 3. **Restoration Protocol:**
    * During restore, the backup file is opened, its HMAC and header verified, and the data imported back into the app's encrypted database file following clean migration checks.
+
+---
+
+### 6.6 Implemented Production Migrations: `MIGRATION_1_2` (Phase 3)
+
+In Phase 3, the database version was incremented from **Version 1** to **Version 2** to introduce background task scheduling.
+
+#### Migration Specification: `MIGRATION_1_2`
+```kotlin
+val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `automation_schedules` (
+                `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                `profile_id` TEXT NOT NULL,
+                `name` TEXT NOT NULL,
+                `type` TEXT NOT NULL,
+                `recurrence_rule` TEXT NOT NULL,
+                `target_time_millis` INTEGER NOT NULL,
+                `repeat_interval_millis` INTEGER NOT NULL,
+                `max_duration_seconds` INTEGER NOT NULL,
+                `is_enabled` INTEGER NOT NULL,
+                `last_run_time_millis` INTEGER,
+                `next_run_time_millis` INTEGER,
+                `status` TEXT NOT NULL,
+                `created_at` INTEGER NOT NULL,
+                `updated_at` INTEGER NOT NULL,
+                FOREIGN KEY(`profile_id`) REFERENCES `automation_profiles`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_automation_schedules_profile_id` ON `automation_schedules` (`profile_id`)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_automation_schedules_next_run_status` ON `automation_schedules` (`is_enabled`, `status`, `next_run_time_millis`)"
+        )
+    }
+}
+```
+
+#### Migration Characteristics:
+* **Non-destructive**: Preserves all existing `automation_profiles` and `execution_history` records without altering existing tables.
+* **Cascading Deletions**: Enforces `ON DELETE CASCADE` on `profile_id`, ensuring orphaned schedules are deleted if a profile is removed.
+* **Fast Queries**: Dual indexes provide O(log N) lookup by `profile_id` and composite query acceleration on `(is_enabled, status, next_run_time_millis)`.
+* **Verification**: Tested via unit migration tests (`DatabaseMigrationTest`) and verified in LDPlayer runtime upgrades without wiping app data.

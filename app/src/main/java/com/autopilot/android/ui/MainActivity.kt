@@ -12,10 +12,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.autopilot.android.AutoPilotApplication
-import com.autopilot.android.ui.screen.AutomationMonitorScreen
-import com.autopilot.android.ui.screen.HistoryScreen
-import com.autopilot.android.ui.screen.ProfileEditorScreen
-import com.autopilot.android.ui.screen.ProfileListScreen
+import com.autopilot.android.ui.screen.*
 import com.autopilot.android.ui.theme.AutoPilotTheme
 
 class MainActivity : ComponentActivity() {
@@ -26,6 +23,8 @@ class MainActivity : ComponentActivity() {
         val app = application as AutoPilotApplication
         val profileRepository = app.profileRepository
         val historyRepository = app.historyRepository
+        val scheduleRepository = app.scheduleRepository
+        val scheduler = app.automationScheduler
         val coordinator = app.automationCoordinator
 
         setContent {
@@ -50,6 +49,9 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onNavigateToHistory = {
                                     navController.navigate("history")
+                                },
+                                onNavigateToSchedules = {
+                                    navController.navigate("schedules")
                                 }
                             )
                         }
@@ -73,6 +75,28 @@ class MainActivity : ComponentActivity() {
                         composable("history") {
                             HistoryScreen(
                                 historyRepository = historyRepository,
+                                onNavigateBack = { navController.popBackStack() }
+                            )
+                        }
+
+                        composable("schedules") {
+                            ScheduleDashboardScreen(
+                                scheduleRepository = scheduleRepository,
+                                scheduler = scheduler,
+                                onNavigateBack = { navController.popBackStack() },
+                                onNavigateToEditor = { scheduleId ->
+                                    navController.navigate("schedule_editor?scheduleId=${scheduleId ?: ""}")
+                                }
+                            )
+                        }
+
+                        composable("schedule_editor?scheduleId={scheduleId}") { backStackEntry ->
+                            val scheduleId = backStackEntry.arguments?.getString("scheduleId")?.takeIf { it.isNotBlank() }
+                            ScheduleEditorScreen(
+                                scheduleId = scheduleId,
+                                scheduleRepository = scheduleRepository,
+                                profileRepository = profileRepository,
+                                scheduler = scheduler,
                                 onNavigateBack = { navController.popBackStack() }
                             )
                         }

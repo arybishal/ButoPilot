@@ -5,11 +5,11 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
 import com.autopilot.android.data.local.AutoPilotDatabase
-import com.autopilot.android.data.repository.HistoryRepository
-import com.autopilot.android.data.repository.HistoryRepositoryImpl
-import com.autopilot.android.data.repository.ProfileRepository
-import com.autopilot.android.data.repository.ProfileRepositoryImpl
+import com.autopilot.android.data.repository.*
 import com.autopilot.android.engine.AutomationCoordinator
+import com.autopilot.android.feature.scheduling.notification.ScheduleNotificationManager
+import com.autopilot.android.feature.scheduling.service.AutomationScheduler
+import com.autopilot.android.feature.scheduling.worker.ScheduleReconciliationWorker
 
 class AutoPilotApplication : Application() {
 
@@ -29,6 +29,15 @@ class AutoPilotApplication : Application() {
     lateinit var historyRepository: HistoryRepository
         private set
 
+    lateinit var scheduleRepository: ScheduleRepository
+        private set
+
+    lateinit var automationScheduler: AutomationScheduler
+        private set
+
+    lateinit var scheduleNotificationManager: ScheduleNotificationManager
+        private set
+
     lateinit var automationCoordinator: AutomationCoordinator
         private set
 
@@ -39,22 +48,32 @@ class AutoPilotApplication : Application() {
         database = AutoPilotDatabase.getInstance(this)
         profileRepository = ProfileRepositoryImpl(database.profileDao())
         historyRepository = HistoryRepositoryImpl(database.executionHistoryDao())
-        automationCoordinator = AutomationCoordinator(this, profileRepository, historyRepository)
+        scheduleRepository = ScheduleRepositoryImpl(database.scheduleDao())
 
-        createNotificationChannel()
+        automationCoordinator = AutomationCoordinator(this, profileRepository, historyRepository)
+        automationScheduler = AutomationScheduler(this)
+        scheduleNotificationManager = ScheduleNotificationManager(this)
+
+        createNotificationChannels()
+
+        // Enqueue WorkManager periodic background reconciliation
+        ScheduleReconciliationWorker.enqueuePeriodic(this)
     }
 
-    private fun createNotificationChannel() {
+    private fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
+            val automationChannel = NotificationChannel(
                 CHANNEL_ID,
                 CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Shows real-time status of running browser automations"
             }
+
             val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+            manager.createNotificationChannel(automationChannel)
+
+            scheduleNotificationManager.createChannels()
         }
     }
 }

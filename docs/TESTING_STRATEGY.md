@@ -730,3 +730,33 @@ All assets are checked into version control under `src/androidTest/assets/` to e
 2. **Deterministic Stability**: Flaky tests are treated as production P1 defects; any test failing intermittently must be quarantined immediately and resolved.
 3. **No External Network Dependencies**: All network operations must point to `MockWebServer` or sealed local assets.
 4. **Enforced Coverage Thresholds**: PRs reducing coverage under the 80% domain gate will be blocked automatically by GitHub Actions.
+
+---
+
+## 11. Phase 3 Test Suite & Quality Verification
+
+In Phase 3 (Background Execution & Scheduling), the test suite was expanded with 14 unit and migration tests, bringing total test count to **32 unit tests passing (100%)**:
+
+### 11.1 Phase 3 Automated Unit Tests
+- **`ScheduleCalculatorTest` (7 tests)**:
+  - Validates one-time future calculation.
+  - Validates past one-time schedule rejection (`null`).
+  - Validates daily recurrence advancing to next day at same hour/minute.
+  - Validates weekday recurrence advancing from Friday to Monday.
+  - Validates weekly recurrence advancing by exactly 7 days.
+  - Validates monthly recurrence handling month-end boundary clamping (Jan 31 -> Feb 28/29).
+  - Validates custom interval calculation.
+- **`ScheduleValidatorTest` (6 tests)**:
+  - Validates valid schedule passing validation.
+  - Validates rejection of blank schedule name.
+  - Validates rejection of non-existent profile ID.
+  - Validates rejection of one-time schedule set in the past.
+  - Validates rejection of invalid timezone ID strings.
+  - Validates rejection of negative duration or interval boundaries.
+- **`DatabaseMigrationTest` (1 test)**:
+  - Validates `MIGRATION_1_2` DDL execution: table creation, indexes, and foreign key cascade rule.
+
+### 11.2 Phase 3 LDPlayer Runtime Verification
+- Verified on LDPlayer 9 (`emulator-5554`, Android 9 / API 28).
+- 10 screenshot artifacts captured and stored under `docs/testing/phase-3-ldplayer/screenshots/`.
+- Validated exact alarm triggering, notification posting, background foreground service start, recurrence, toggle disable/cancel, process death recovery, and Phase 2 regression integrity.

@@ -27,7 +27,8 @@ fun ProfileListScreen(
     coordinator: AutomationCoordinator,
     onNavigateToEditor: (String?) -> Unit,
     onNavigateToMonitor: () -> Unit,
-    onNavigateToHistory: () -> Unit
+    onNavigateToHistory: () -> Unit,
+    onNavigateToSchedules: () -> Unit
 ) {
     val profiles by profileRepository.getAllProfilesFlow().collectAsState(initial = emptyList())
     val engineState by coordinator.engineState.collectAsState()
@@ -47,6 +48,9 @@ fun ProfileListScreen(
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
+                    }
+                    IconButton(onClick = onNavigateToSchedules) {
+                        Icon(Icons.Default.Schedule, contentDescription = "Schedules")
                     }
                     IconButton(onClick = onNavigateToHistory) {
                         Icon(Icons.Default.History, contentDescription = "History")

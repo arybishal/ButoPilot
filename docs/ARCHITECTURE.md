@@ -667,3 +667,47 @@ To prevent architectural drift and guarantee code quality across development cyc
    - Every Domain Use Case is covered by unit tests using `kotlinx-coroutines-test` and mock/fake repositories.
    - Repository implementations are verified using in-memory encrypted Room instances (`SupportFactory(passphrase)`).
    - WebView automations are tested against a local MockWebServer executing pre-compiled DOM fixtures.
+
+---
+
+## 14. Phase 3 Architecture: Background Execution & Scheduling
+
+Phase 3 introduces an end-to-end background scheduling and execution system integrated seamlessly into the Clean Architecture structure:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        PRESENTATION LAYER                              │
+│   ScheduleDashboardScreen (Filter tabs, Switch, Actions)               │
+│   ScheduleEditorScreen (Name, Profile Picker, Presets, Limits)         │
+│   ScheduleViewModel (StateFlow<ScheduleDashboardState>)                │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                           DOMAIN LAYER                                 │
+│   Domain Models: AutomationSchedule, ScheduleType, RecurrenceRule      │
+│   ScheduleCalculator (Pure Kotlin, DST/Leap-year/Month-end clamping)   │
+│   ScheduleValidator (Name, Existence, Future Time, Boundaries)         │
+│   Repository Interface: ScheduleRepository                             │
+└───────────────────────────────────▲────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                            DATA LAYER                                  │
+│   ScheduleEntity (FK -> automation_profiles(id) ON DELETE CASCADE)     │
+│   ScheduleDao (Reactive Flow queries, status transitions)              │
+│   ScheduleRepositoryImpl (Room Data Source implementation)             │
+│   AutoPilotDatabase (v2 schema, MIGRATION_1_2)                         │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                       FEATURE / SYSTEM LAYER                           │
+│   AutomationScheduler (AlarmManager RTC_WAKEUP, exact/inexact)         │
+│   ScheduleReceiver (Handles com.autopilot.android.action.TRIGGER)       │
+│   BootCompletedReceiver (BOOT_COMPLETED & MY_PACKAGE_REPLACED recovery)│
+│   ScheduleReconciliationWorker (Periodic 2-hour WorkManager maintenance│
+│   ScheduleNotificationManager (autopilot_schedule_channel alerts)      │
+│   AutomationService (Foreground Service with specialUse type)          │
+└────────────────────────────────────────────────────────────────────────┘
+```
