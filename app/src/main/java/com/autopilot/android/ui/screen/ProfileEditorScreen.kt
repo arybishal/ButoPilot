@@ -12,9 +12,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.autopilot.android.data.repository.ProfileRepository
+import com.autopilot.android.data.repository.ProxyRepository
 import com.autopilot.android.domain.model.AutomationProfile
 import com.autopilot.android.domain.model.ExecutionMode
 import com.autopilot.android.domain.validation.UrlValidator
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -23,8 +25,10 @@ import java.util.UUID
 fun ProfileEditorScreen(
     profileId: String?,
     profileRepository: ProfileRepository,
+    proxyRepository: ProxyRepository? = null,
     onNavigateBack: () -> Unit
 ) {
+    val proxies by (proxyRepository?.getAllProxiesFlow() ?: flowOf(emptyList())).collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
@@ -42,6 +46,7 @@ fun ProfileEditorScreen(
     var allowedDomainsText by remember { mutableStateOf("") }
     var clearCookies by remember { mutableStateOf(false) }
     var clearCache by remember { mutableStateOf(false) }
+    var selectedProxyId by remember { mutableStateOf<String?>(null) }
     var isLoaded by remember { mutableStateOf(false) }
 
     LaunchedEffect(profileId) {
@@ -64,6 +69,7 @@ fun ProfileEditorScreen(
                 allowedDomainsText = existing.allowedDomains.joinToString(", ")
                 clearCookies = existing.clearCookiesOnStart
                 clearCache = existing.clearCacheOnStart
+                selectedProxyId = existing.proxyId
             }
         }
         isLoaded = true
@@ -105,6 +111,7 @@ fun ProfileEditorScreen(
                                 allowedDomains = allowedDomains,
                                 clearCookiesOnStart = clearCookies,
                                 clearCacheOnStart = clearCache,
+                                proxyId = selectedProxyId,
                                 updatedAt = System.currentTimeMillis()
                             )
                             scope.launch {
@@ -341,6 +348,92 @@ fun ProfileEditorScreen(
             ) {
                 Text("Clear Cache on Start")
                 Switch(checked = clearCache, onCheckedChange = { clearCache = it })
+            }
+
+            Divider()
+
+            // Section 8: Network Isolation & Proxy Selection
+            Text("Network Isolation & Proxy", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+
+            val isConfiguredProxyMissing = selectedProxyId != null && proxies.none { it.id == selectedProxyId }
+            if (isConfiguredProxyMissing) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Warning: The configured proxy was deleted or is unavailable. Automation execution will be safely blocked to prevent real IP exposure.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+            }
+
+            Text("Select Proxy for this profile:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = selectedProxyId == null,
+                    onClick = { selectedProxyId = null },
+                    label = { Text("Direct Network (No Proxy)") }
+                )
+            }
+
+            if (proxies.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    proxies.forEach { proxy ->
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (selectedProxyId == proxy.id)
+                                    MaterialTheme.colorScheme.primaryContainer
+                                else
+                                    MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { selectedProxyId = proxy.id }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = proxy.name,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "${proxy.protocol.displayName} • ${proxy.host}:${proxy.port} • Region: ${proxy.getDisplayRegion()}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                                if (selectedProxyId == proxy.id) {
+                                    Icon(
+                                        Icons.Default.CheckCircle,
+                                        contentDescription = "Selected",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))

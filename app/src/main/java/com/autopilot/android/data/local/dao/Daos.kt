@@ -95,3 +95,64 @@ interface ScheduleDao {
     @Query("UPDATE automation_schedules SET enabled = :enabled, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateEnabled(id: String, enabled: Boolean, updatedAt: Long = System.currentTimeMillis())
 }
+
+@Dao
+interface ProxyDao {
+    @Query("SELECT * FROM proxy_configurations ORDER BY updatedAt DESC")
+    fun getAllFlow(): Flow<List<com.autopilot.android.data.local.entity.ProxyEntity>>
+
+    @Query("SELECT * FROM proxy_configurations ORDER BY updatedAt DESC")
+    suspend fun getAll(): List<com.autopilot.android.data.local.entity.ProxyEntity>
+
+    @Query("SELECT * FROM proxy_configurations WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): com.autopilot.android.data.local.entity.ProxyEntity?
+
+    @Query("SELECT * FROM proxy_configurations WHERE id = :id LIMIT 1")
+    fun getByIdFlow(id: String): Flow<com.autopilot.android.data.local.entity.ProxyEntity?>
+
+    @Query("SELECT * FROM proxy_configurations WHERE host = :host AND port = :port LIMIT 1")
+    suspend fun getByHostAndPort(host: String, port: Int): com.autopilot.android.data.local.entity.ProxyEntity?
+
+    @Query("SELECT * FROM proxy_configurations WHERE enabled = 1")
+    suspend fun getEnabled(): List<com.autopilot.android.data.local.entity.ProxyEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdate(proxy: com.autopilot.android.data.local.entity.ProxyEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(proxies: List<com.autopilot.android.data.local.entity.ProxyEntity>)
+
+    @Delete
+    suspend fun delete(proxy: com.autopilot.android.data.local.entity.ProxyEntity)
+
+    @Query("DELETE FROM proxy_configurations WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("UPDATE proxy_configurations SET lastHealthStatus = :status, lastLatencyMs = :latencyMs, lastTestedAt = :testedAt, lastErrorMessage = :error, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateHealthStatus(
+        id: String,
+        status: String,
+        latencyMs: Long?,
+        testedAt: Long,
+        error: String?,
+        updatedAt: Long = System.currentTimeMillis()
+    )
+
+    @Query("UPDATE proxy_configurations SET enabled = :enabled, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateEnabled(id: String, enabled: Boolean, updatedAt: Long = System.currentTimeMillis())
+}
+
+@Dao
+interface ProxySourceDao {
+    @Query("SELECT * FROM proxy_sources ORDER BY createdAt DESC")
+    fun getAllFlow(): Flow<List<com.autopilot.android.data.local.entity.ProxySourceEntity>>
+
+    @Query("SELECT * FROM proxy_sources WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): com.autopilot.android.data.local.entity.ProxySourceEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdate(source: com.autopilot.android.data.local.entity.ProxySourceEntity)
+
+    @Query("DELETE FROM proxy_sources WHERE id = :id")
+    suspend fun deleteById(id: String)
+}

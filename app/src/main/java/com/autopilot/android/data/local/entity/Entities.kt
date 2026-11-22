@@ -29,7 +29,8 @@ data class ProfileEntity(
     val timeoutSeconds: Int,
     val createdAt: Long,
     val updatedAt: Long,
-    val status: String
+    val status: String,
+    val proxyId: String? = null
 )
 
 @Entity(tableName = "execution_history")
@@ -80,3 +81,45 @@ data class ScheduleEntity(
     val createdAt: Long,
     val updatedAt: Long
 )
+
+@Entity(
+    tableName = "proxy_configurations",
+    indices = [
+        androidx.room.Index(value = ["host", "port"]),
+        androidx.room.Index(value = ["enabled"]),
+        androidx.room.Index(value = ["lastHealthStatus"])
+    ]
+)
+data class ProxyEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val protocol: String,
+    val host: String,
+    val port: Int,
+    val encryptedUsername: String?,
+    val encryptedPassword: String?,
+    val usernameIv: String?,
+    val passwordIv: String?,
+    val region: String?,
+    val notes: String,
+    val sourceId: String?,
+    val enabled: Boolean,
+    val lastHealthStatus: String,
+    val lastLatencyMs: Long?,
+    val lastTestedAt: Long?,
+    val lastErrorMessage: String?,
+    val createdAt: Long,
+    val updatedAt: Long
+)
+
+@Entity(tableName = "proxy_sources")
+data class ProxySourceEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val sourceType: String,
+    val urlOrPath: String?,
+    val lastRefreshedAt: Long?,
+    val proxyCount: Int,
+    val createdAt: Long
+)
+

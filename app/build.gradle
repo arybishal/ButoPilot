@@ -77,6 +77,9 @@ dependencies {
     // AndroidX WebKit for WebView Proxy & Automation
     implementation 'androidx.webkit:webkit:1.12.1'
 
+    // OkHttp for Proxy Health Checks and Network Probing
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+
     // Room Database
     implementation 'androidx.room:room-runtime:2.6.1'
     implementation 'androidx.room:room-ktx:2.6.1'

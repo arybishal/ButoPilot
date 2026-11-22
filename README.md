@@ -68,8 +68,16 @@ The platform is designed around six foundational pillars:
   - **Background Coordination:** Exact alarm dispatching via `AlarmManager.setExactAndAllowWhileIdle()` (`RTC_WAKEUP`), `ScheduleReceiver` checking concurrency limits and launching `AutomationService` foreground service with `specialUse`, and `BootCompletedReceiver` for device reboot and app update recovery.
   - **WorkManager Reconciliation:** Periodic 2-hour `ScheduleReconciliationWorker` maintenance safety net.
   - **User Interface:** Jetpack Compose `ScheduleDashboardScreen` with filter tabs (All, Upcoming, Recurring, Inactive) and toggle switches; `ScheduleEditorScreen` with profile selection cards, recurrence frequency, and quick presets.
-  - **Quality Assurance:** 32/32 unit tests passing (100%), verified live on LDPlayer 9 emulator (`emulator-5554`) with 10 visual screenshots and logcat dumps.
-- **Phase 4 (Proxy & Network Isolation):** Next Phase (Awaiting explicit approval).
+  - **Quality Assurance:** 38/38 unit tests passing (100%), verified live on LDPlayer 9 emulator (`emulator-5554`) with 10 visual screenshots and logcat dumps.
+- **Phase 4 (Proxy & Network Isolation):** Complete & Verified:
+  - **Room Migration v2 $\to$ v3 (`MIGRATION_2_3`):** Non-destructively added `proxyId` to `automation_profiles` table, created `proxy_configurations` and `proxy_sources` tables with indexes on `(host, port)`, `enabled`, and `lastHealthStatus`, fully preserving existing profiles, history, and schedules.
+  - **Sequential Proxy Execution:** Process-wide WebKit proxy limitation resolved via `ProxyExecutionCoordinator` with coroutines `Mutex` serialized locking, preventing multi-profile proxy pollution. Guaranteed restoration of default network routing in `finally` blocks.
+  - **Security & Keystore:** AES-256-GCM hardware-backed credential encryption via `ProxyCredentialEncryptor` with 12-byte random IVs per field; masked credentials in UI and logs. Clear security notices regarding untrusted public proxies.
+  - **Proxy Health & Probing:** Latency measurement and health check engine (`ProxyHealthChecker`) with bounded 5-second timeouts and HTTP/SOCKS5 reachability checks via OkHttp.
+  - **Import & Parsing:** `ProxySourceManager` supports bulk import with formats (`host:port`, `protocol://host:port`, `user:pass@host:port`), deduplication against existing configurations, and validation.
+  - **User Interface:** Jetpack Compose `ProxyListScreen` (filter chips, health badges, test latency button, import dialog, delete confirmation), `ProxyEditorScreen` (validated inputs, masked password toggle, live test connection), and `ProfileEditorScreen` with proxy selector and orphaned proxy protection warning.
+  - **Quality Assurance:** 51/51 unit tests passing (100%), verified on LDPlayer 9 (`emulator-5554`) with screenshots and zero runtime crashes.
+- **Phase 5 (Diagnostics, Backup & Data Recovery):** Next Phase (Awaiting explicit approval).
 
 ---
 

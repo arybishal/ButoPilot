@@ -24,6 +24,8 @@ class MainActivity : ComponentActivity() {
         val profileRepository = app.profileRepository
         val historyRepository = app.historyRepository
         val scheduleRepository = app.scheduleRepository
+        val proxyRepository = app.proxyRepository
+        val healthChecker = app.proxyHealthChecker
         val scheduler = app.automationScheduler
         val coordinator = app.automationCoordinator
 
@@ -52,6 +54,9 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onNavigateToSchedules = {
                                     navController.navigate("schedules")
+                                },
+                                onNavigateToProxies = {
+                                    navController.navigate("proxies")
                                 }
                             )
                         }
@@ -61,6 +66,7 @@ class MainActivity : ComponentActivity() {
                             ProfileEditorScreen(
                                 profileId = profileId,
                                 profileRepository = profileRepository,
+                                proxyRepository = proxyRepository,
                                 onNavigateBack = { navController.popBackStack() }
                             )
                         }
@@ -97,6 +103,27 @@ class MainActivity : ComponentActivity() {
                                 scheduleRepository = scheduleRepository,
                                 profileRepository = profileRepository,
                                 scheduler = scheduler,
+                                onNavigateBack = { navController.popBackStack() }
+                            )
+                        }
+
+                        composable("proxies") {
+                            ProxyListScreen(
+                                proxyRepository = proxyRepository,
+                                healthChecker = healthChecker,
+                                onNavigateBack = { navController.popBackStack() },
+                                onNavigateToEditor = { proxyId ->
+                                    navController.navigate("proxy_editor?proxyId=${proxyId ?: ""}")
+                                }
+                            )
+                        }
+
+                        composable("proxy_editor?proxyId={proxyId}") { backStackEntry ->
+                            val proxyId = backStackEntry.arguments?.getString("proxyId")?.takeIf { it.isNotBlank() }
+                            ProxyEditorScreen(
+                                proxyId = proxyId,
+                                proxyRepository = proxyRepository,
+                                healthChecker = healthChecker,
                                 onNavigateBack = { navController.popBackStack() }
                             )
                         }

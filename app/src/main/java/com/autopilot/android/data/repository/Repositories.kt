@@ -1,12 +1,18 @@
 package com.autopilot.android.data.repository
 
+import com.autopilot.android.core.security.ProxyCredentialEncryptor
 import com.autopilot.android.data.local.dao.ExecutionHistoryDao
 import com.autopilot.android.data.local.dao.ProfileDao
+import com.autopilot.android.data.local.dao.ProxyDao
+import com.autopilot.android.data.local.dao.ProxySourceDao
 import com.autopilot.android.data.local.dao.ScheduleDao
 import com.autopilot.android.data.local.entity.ExecutionHistoryEntity
 import com.autopilot.android.data.local.entity.ProfileEntity
+import com.autopilot.android.data.local.entity.ProxyEntity
+import com.autopilot.android.data.local.entity.ProxySourceEntity
 import com.autopilot.android.data.local.entity.ScheduleEntity
 import com.autopilot.android.domain.model.*
+import com.autopilot.android.domain.model.proxy.*
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.Flow
@@ -113,7 +119,8 @@ class ProfileRepositoryImpl(
             timeoutSeconds = timeoutSeconds,
             createdAt = createdAt,
             updatedAt = updatedAt,
-            status = try { ProfileStatus.valueOf(status) } catch (e: Exception) { ProfileStatus.IDLE }
+            status = try { ProfileStatus.valueOf(status) } catch (e: Exception) { ProfileStatus.IDLE },
+            proxyId = proxyId
         )
     }
 
@@ -140,7 +147,8 @@ class ProfileRepositoryImpl(
             timeoutSeconds = timeoutSeconds,
             createdAt = createdAt,
             updatedAt = updatedAt,
-            status = status.name
+            status = status.name,
+            proxyId = proxyId
         )
     }
 }
@@ -313,6 +321,182 @@ class ScheduleRepositoryImpl(
             lastError = lastError,
             createdAt = createdAt,
             updatedAt = updatedAt
+        )
+    }
+}
+
+interface ProxyRepository {
+    fun getAllProxiesFlow(): Flow<List<ProxyConfiguration>>
+    suspend fun getAllProxies(): List<ProxyConfiguration>
+    suspend fun getProxyById(id: String): ProxyConfiguration?
+    fun getProxyByIdFlow(id: String): Flow<ProxyConfiguration?>
+    suspend fun getProxyByHostAndPort(host: String, port: Int): ProxyConfiguration?
+    suspend fun getEnabledProxies(): List<ProxyConfiguration>
+    suspend fun saveProxy(proxy: ProxyConfiguration)
+    suspend fun saveProxies(proxies: List<ProxyConfiguration>)
+    suspend fun deleteProxy(id: String)
+    suspend fun updateHealthStatus(id: String, status: ProxyHealthStatus, latencyMs: Long?, error: String?)
+    suspend fun updateEnabled(id: String, enabled: Boolean)
+    fun getAllSourcesFlow(): Flow<List<ProxySource>>
+    suspend fun getSourceById(id: String): ProxySource?
+    suspend fun saveSource(source: ProxySource)
+    suspend fun deleteSource(id: String)
+}
+
+class ProxyRepositoryImpl(
+    private val proxyDao: ProxyDao,
+    private val proxySourceDao: ProxySourceDao,
+    private val encryptor: ProxyCredentialEncryptor = ProxyCredentialEncryptor()
+) : ProxyRepository {
+
+    override fun getAllProxiesFlow(): Flow<List<ProxyConfiguration>> {
+        return proxyDao.getAllFlow().map { list -> list.map { it.toDomain() } }
+    }
+
+    override suspend fun getAllProxies(): List<ProxyConfiguration> {
+        return proxyDao.getAll().map { it.toDomain() }
+    }
+
+    override suspend fun getProxyById(id: String): ProxyConfiguration? {
+        return proxyDao.getById(id)?.toDomain()
+    }
+
+    override fun getProxyByIdFlow(id: String): Flow<ProxyConfiguration?> {
+        return proxyDao.getByIdFlow(id).map { it?.toDomain() }
+    }
+
+    override suspend fun getProxyByHostAndPort(host: String, port: Int): ProxyConfiguration? {
+        return proxyDao.getByHostAndPort(host, port)?.toDomain()
+    }
+
+    override suspend fun getEnabledProxies(): List<ProxyConfiguration> {
+        return proxyDao.getEnabled().map { it.toDomain() }
+    }
+
+    override suspend fun saveProxy(proxy: ProxyConfiguration) {
+        proxyDao.insertOrUpdate(proxy.toEntity())
+    }
+
+    override suspend fun saveProxies(proxies: List<ProxyConfiguration>) {
+        proxyDao.insertAll(proxies.map { it.toEntity() })
+    }
+
+    override suspend fun deleteProxy(id: String) {
+        proxyDao.deleteById(id)
+    }
+
+    override suspend fun updateHealthStatus(
+        id: String,
+        status: ProxyHealthStatus,
+        latencyMs: Long?,
+        error: String?
+    ) {
+        proxyDao.updateHealthStatus(
+            id = id,
+            status = status.name,
+            latencyMs = latencyMs,
+            testedAt = System.currentTimeMillis(),
+            error = error
+        )
+    }
+
+    override suspend fun updateEnabled(id: String, enabled: Boolean) {
+        proxyDao.updateEnabled(id, enabled)
+    }
+
+    override fun getAllSourcesFlow(): Flow<List<ProxySource>> {
+        return proxySourceDao.getAllFlow().map { list -> list.map { it.toDomain() } }
+    }
+
+    override suspend fun getSourceById(id: String): ProxySource? {
+        return proxySourceDao.getById(id)?.toDomain()
+    }
+
+    override suspend fun saveSource(source: ProxySource) {
+        proxySourceDao.insertOrUpdate(source.toEntity())
+    }
+
+    override suspend fun deleteSource(id: String) {
+        proxySourceDao.deleteById(id)
+    }
+
+    private fun ProxyEntity.toDomain(): ProxyConfiguration {
+        val user = encryptor.decrypt(encryptedUsername, usernameIv)
+        val pass = encryptor.decrypt(encryptedPassword, passwordIv)
+        val credentials = if (!user.isNullOrEmpty() || !pass.isNullOrEmpty()) {
+            ProxyCredentials(username = user, password = pass)
+        } else {
+            null
+        }
+
+        return ProxyConfiguration(
+            id = id,
+            name = name,
+            protocol = ProxyProtocol.fromString(protocol),
+            host = host,
+            port = port,
+            credentials = credentials,
+            region = region,
+            notes = notes,
+            sourceId = sourceId,
+            enabled = enabled,
+            lastHealthStatus = ProxyHealthStatus.fromString(lastHealthStatus),
+            lastLatencyMs = lastLatencyMs,
+            lastTestedAt = lastTestedAt,
+            lastErrorMessage = lastErrorMessage,
+            createdAt = createdAt,
+            updatedAt = updatedAt
+        )
+    }
+
+    private fun ProxyConfiguration.toEntity(): ProxyEntity {
+        val usernamePayload = encryptor.encrypt(credentials?.username)
+        val passwordPayload = encryptor.encrypt(credentials?.password)
+
+        return ProxyEntity(
+            id = id,
+            name = name,
+            protocol = protocol.name,
+            host = host,
+            port = port,
+            encryptedUsername = usernamePayload?.ciphertextBase64,
+            encryptedPassword = passwordPayload?.ciphertextBase64,
+            usernameIv = usernamePayload?.ivBase64,
+            passwordIv = passwordPayload?.ivBase64,
+            region = region,
+            notes = notes,
+            sourceId = sourceId,
+            enabled = enabled,
+            lastHealthStatus = lastHealthStatus.name,
+            lastLatencyMs = lastLatencyMs,
+            lastTestedAt = lastTestedAt,
+            lastErrorMessage = lastErrorMessage,
+            createdAt = createdAt,
+            updatedAt = updatedAt
+        )
+    }
+
+    private fun ProxySourceEntity.toDomain(): ProxySource {
+        return ProxySource(
+            id = id,
+            name = name,
+            sourceType = try { ProxySourceType.valueOf(sourceType) } catch (e: Exception) { ProxySourceType.MANUAL },
+            urlOrPath = urlOrPath,
+            lastRefreshedAt = lastRefreshedAt,
+            proxyCount = proxyCount,
+            createdAt = createdAt
+        )
+    }
+
+    private fun ProxySource.toEntity(): ProxySourceEntity {
+        return ProxySourceEntity(
+            id = id,
+            name = name,
+            sourceType = sourceType.name,
+            urlOrPath = urlOrPath,
+            lastRefreshedAt = lastRefreshedAt,
+            proxyCount = proxyCount,
+            createdAt = createdAt
         )
     }
 }

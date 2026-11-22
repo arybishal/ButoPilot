@@ -21,4 +21,11 @@ class DatabaseMigrationTest {
         assertEquals(1, migration.startVersion)
         assertEquals(2, migration.endVersion)
     }
+
+    @Test
+    fun testMigration2To3SqlSyntax() {
+        val migration = AutoPilotDatabase.MIGRATION_2_3
+        assertEquals(2, migration.startVersion)
+        assertEquals(3, migration.endVersion)
+    }
 }

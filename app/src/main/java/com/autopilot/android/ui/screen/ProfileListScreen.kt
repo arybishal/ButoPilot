@@ -28,7 +28,8 @@ fun ProfileListScreen(
     onNavigateToEditor: (String?) -> Unit,
     onNavigateToMonitor: () -> Unit,
     onNavigateToHistory: () -> Unit,
-    onNavigateToSchedules: () -> Unit
+    onNavigateToSchedules: () -> Unit,
+    onNavigateToProxies: () -> Unit
 ) {
     val profiles by profileRepository.getAllProfilesFlow().collectAsState(initial = emptyList())
     val engineState by coordinator.engineState.collectAsState()
@@ -48,6 +49,9 @@ fun ProfileListScreen(
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
+                    }
+                    IconButton(onClick = onNavigateToProxies) {
+                        Icon(Icons.Default.VpnLock, contentDescription = "VPN & Proxies")
                     }
                     IconButton(onClick = onNavigateToSchedules) {
                         Icon(Icons.Default.Schedule, contentDescription = "Schedules")

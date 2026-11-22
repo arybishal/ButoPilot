@@ -7,6 +7,8 @@ import android.os.Build
 import com.autopilot.android.data.local.AutoPilotDatabase
 import com.autopilot.android.data.repository.*
 import com.autopilot.android.engine.AutomationCoordinator
+import com.autopilot.android.feature.proxy.ProxyExecutionCoordinator
+import com.autopilot.android.feature.proxy.ProxyHealthChecker
 import com.autopilot.android.feature.scheduling.notification.ScheduleNotificationManager
 import com.autopilot.android.feature.scheduling.service.AutomationScheduler
 import com.autopilot.android.feature.scheduling.worker.ScheduleReconciliationWorker
@@ -38,6 +40,15 @@ class AutoPilotApplication : Application() {
     lateinit var scheduleNotificationManager: ScheduleNotificationManager
         private set
 
+    lateinit var proxyRepository: ProxyRepository
+        private set
+
+    lateinit var proxyExecutionCoordinator: ProxyExecutionCoordinator
+        private set
+
+    lateinit var proxyHealthChecker: ProxyHealthChecker
+        private set
+
     lateinit var automationCoordinator: AutomationCoordinator
         private set
 
@@ -49,8 +60,18 @@ class AutoPilotApplication : Application() {
         profileRepository = ProfileRepositoryImpl(database.profileDao())
         historyRepository = HistoryRepositoryImpl(database.executionHistoryDao())
         scheduleRepository = ScheduleRepositoryImpl(database.scheduleDao())
+        proxyRepository = ProxyRepositoryImpl(database.proxyDao(), database.proxySourceDao())
 
-        automationCoordinator = AutomationCoordinator(this, profileRepository, historyRepository)
+        proxyExecutionCoordinator = ProxyExecutionCoordinator()
+        proxyHealthChecker = ProxyHealthChecker()
+
+        automationCoordinator = AutomationCoordinator(
+            context = this,
+            profileRepository = profileRepository,
+            historyRepository = historyRepository,
+            proxyRepository = proxyRepository,
+            proxyExecutionCoordinator = proxyExecutionCoordinator
+        )
         automationScheduler = AutomationScheduler(this)
         scheduleNotificationManager = ScheduleNotificationManager(this)
 

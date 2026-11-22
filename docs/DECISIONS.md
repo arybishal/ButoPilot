@@ -25,6 +25,49 @@ This document records the architectural and technology decisions made for the **
 | [ADR-015](#adr-015-minimum-sdk-26-android-80-oreo) | Minimum SDK 26 (Android 8.0 Oreo) | Accepted | 2026-11-22 |
 | [ADR-016](#adr-016-room-schema-migration-v1-to-v2-with-foreign-key-cascade-for-scheduling) | Room Schema Migration v1 to v2 with Foreign Key Cascade for Scheduling | Accepted | 2026-11-22 |
 | [ADR-017](#adr-017-dual-background-engine-alarmmanager-for-precision--workmanager-for-self-healing-reconciliation) | Dual Background Engine: AlarmManager for Precision & WorkManager for Self-Healing Reconciliation | Accepted | 2026-11-22 |
+| [ADR-018](#adr-018-process-wide-webview-proxyoverride-sequential-execution-locking) | Process-Wide WebView ProxyOverride Sequential Execution Locking with Coroutines Mutex | Accepted | 2026-11-22 |
+| [ADR-019](#adr-019-keystore-aes-256-gcm-envelope-encryption-for-proxy-credentials) | Android KeyStore AES-256-GCM Envelope Encryption for Proxy Credentials | Accepted | 2026-11-22 |
+
+---
+
+## ADR-018: Process-Wide WebView ProxyOverride Sequential Execution Locking
+
+### Status
+**Accepted**
+
+### Context
+AndroidX WebKit `ProxyController.getInstance().setProxyOverride()` applies to all WebViews across the host process. When multiple profiles require distinct proxies (or direct network), running them concurrently in the same process causes cross-profile traffic contamination and IP leaks.
+
+### Decision
+Implement `ProxyExecutionCoordinator` backed by a Coroutines `Mutex`. All profile automation executions acquire this mutual exclusion lock before applying proxy rules and releasing them in an unconditional `finally` block with `clearProxyOverride()`.
+
+### Consequences
+- **Positive:**
+  - Absolute leak protection between profiles with different proxy configurations.
+  - Guarantees clean network state restoration even if an automation crashes or is cancelled.
+- **Negative:**
+  - Profiles with different proxies must execute sequentially rather than concurrently in Tier 1.
+
+---
+
+## ADR-019: Keystore AES-256-GCM Envelope Encryption for Proxy Credentials
+
+### Status
+**Accepted**
+
+### Context
+Proxy authentication credentials (usernames and passwords) are sensitive data-at-rest. Storing them in plaintext SQLite tables exposes user credentials to root dumps and device backups.
+
+### Decision
+Implement `ProxyCredentialEncryptor` using hardware-backed Android KeyStore AES-256-GCM with unique 12-byte initialization vectors (IVs) per field. Mask all credentials in logs and user interfaces (`username:••••••`).
+
+### Consequences
+- **Positive:**
+  - Hardware-isolated key storage.
+  - Zero plaintext credential leakage in Room database or memory dumps.
+  - Deterministic fallback key support for JVM unit testing environments.
+- **Negative:**
+  - Slight encryption/decryption CPU overhead during proxy retrieval and persistence.
 
 ---
 

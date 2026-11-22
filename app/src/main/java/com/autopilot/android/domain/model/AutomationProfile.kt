@@ -49,7 +49,8 @@ data class AutomationProfile(
     val timeoutSeconds: Int = 60,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-    val status: ProfileStatus = ProfileStatus.IDLE
+    val status: ProfileStatus = ProfileStatus.IDLE,
+    val proxyId: String? = null
 ) {
     companion object {
         val VALID_REFRESH_INTERVALS = listOf(10, 15, 20, 30, 45, 60, 90, 120)

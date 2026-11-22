@@ -3,6 +3,7 @@ package com.autopilot.android.engine
 import android.content.Context
 import com.autopilot.android.data.repository.HistoryRepository
 import com.autopilot.android.data.repository.ProfileRepository
+import com.autopilot.android.data.repository.ProxyRepository
 import com.autopilot.android.domain.model.AutomationProfile
 import com.autopilot.android.domain.model.ExecutionHistoryItem
 import com.autopilot.android.domain.model.ExecutionMode
@@ -10,6 +11,7 @@ import com.autopilot.android.domain.model.ProfileStatus
 import com.autopilot.android.domain.model.TabState
 import com.autopilot.android.domain.validation.IntervalCalculator
 import com.autopilot.android.domain.validation.UrlValidator
+import com.autopilot.android.feature.proxy.ProxyExecutionCoordinator
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,7 +34,9 @@ data class EngineState(
 class AutomationCoordinator(
     private val context: Context,
     private val profileRepository: ProfileRepository,
-    private val historyRepository: HistoryRepository
+    private val historyRepository: HistoryRepository,
+    private val proxyRepository: ProxyRepository? = null,
+    private val proxyExecutionCoordinator: ProxyExecutionCoordinator? = null
 ) {
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val resourceManager = ResourceManager(context)
@@ -112,7 +116,33 @@ class AutomationCoordinator(
         // Start automation coroutine loop
         executionJob?.cancel()
         executionJob = scope.launch {
+            var proxyLocked = false
             try {
+                // Network isolation check: enforce proxy configuration if set
+                val configuredProxyId = profile.proxyId
+                if (!configuredProxyId.isNullOrBlank()) {
+                    val proxy = proxyRepository?.getProxyById(configuredProxyId)
+                    if (proxy == null || !proxy.enabled) {
+                        val errMsg = "Configured proxy [ID: $configuredProxyId] is unavailable or disabled. Execution aborted to protect network isolation."
+                        _engineState.value = _engineState.value.copy(
+                            status = ProfileStatus.ERROR,
+                            statusMessage = errMsg,
+                            errorMessage = errMsg
+                        )
+                        profileRepository.updateStatus(profile.id, ProfileStatus.ERROR)
+                        return@launch
+                    }
+
+                    _engineState.value = _engineState.value.copy(
+                        statusMessage = "Applying network isolation: ${proxy.name} (${proxy.protocol.displayName} ${proxy.host}:${proxy.port})..."
+                    )
+                    proxyExecutionCoordinator?.acquireAndApply(proxy)
+                    proxyLocked = true
+                } else {
+                    proxyExecutionCoordinator?.acquireAndApply(null)
+                    proxyLocked = true
+                }
+
                 // Update profile status in DB
                 profileRepository.updateStatus(profile.id, ProfileStatus.RUNNING)
 
@@ -128,6 +158,9 @@ class AutomationCoordinator(
                 )
                 profileRepository.updateStatus(profile.id, ProfileStatus.ERROR)
             } finally {
+                if (proxyLocked) {
+                    proxyExecutionCoordinator?.resetAndRelease()
+                }
                 recordSessionHistory(ProfileStatus.COMPLETED)
             }
         }
@@ -186,8 +219,13 @@ class AutomationCoordinator(
 
         webViewManager.destroyAll()
 
-        if (prof != null) {
-            scope.launch {
+        scope.launch {
+            try {
+                proxyExecutionCoordinator?.resetAndRelease()
+            } catch (e: Exception) {
+                // Safe cleanup
+            }
+            if (prof != null) {
                 profileRepository.updateStatus(prof.id, ProfileStatus.IDLE)
                 recordSessionHistory(if (status == ProfileStatus.ERROR) ProfileStatus.ERROR else ProfileStatus.COMPLETED)
             }
