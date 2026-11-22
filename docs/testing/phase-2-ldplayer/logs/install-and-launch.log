@@ -1,0 +1,33 @@
+================================================================================
+AUTOPILOT PHASE 2: APK BUILD & INSTALLATION LOG
+================================================================================
+Timestamp: 2026-11-22 17:20:38
+Target Serial: emulator-5554 (LDPlayer 9)
+
+[BUILD SPECIFICATIONS]
+Build Result: SUCCESSFUL (46 tasks executed)
+Test Result: 18/18 Unit Tests PASSED (0 Failures, 0 Errors)
+APK Path: D:\Webapp\BAutoPilot\app\build\outputs\apk\debug\app-debug.apk
+APK Size: 16.38 MB (17173639 bytes)
+SHA-256 Checksum: 94038D3F7AFE5FBBE69D117E8174A71C839689EC901AFBD20F6F4A14C478A022
+Application ID: com.autopilot.android.debug
+Version Name: 1.0.0
+Version Code: 1
+minSdk: 26 (Android 8.0 Oreo)
+targetSdk: 35 (Android 15)
+
+[ADB STREAM INSTALLATION]
+Install Output:
+Performing Streamed Install Success
+
+Package Query:
+package:/data/app/com.autopilot.android.debug-SCeJoOSC18yuO4b3K6To2w==/base.apk
+
+Launch Command Output:
+Starting: Intent { cmp=com.autopilot.android.debug/com.autopilot.android.ui.MainActivity }
+
+Window Focus Telemetry:
+    mFocusedApp=Token{a57c747 ActivityRecord{9567286 u0 com.ldmnq.launcher3/com.android.launcher3.Launcher t2}}
+  mCurrentFocus=null
+  mFocusedApp=AppWindowToken{e01ab74 token=Token{a57c747 ActivityRecord{9567286 u0 com.ldmnq.launcher3/com.android.launcher3.Launcher t2}}}
+
