@@ -232,12 +232,18 @@ class MainActivity : ComponentActivity() {
 
                         // --- 3. VPN Tab ---
                         composable("vpn") {
-                            ProxyListScreen(
+                            ProxyRegionScreen(
                                 proxyRepository = proxyRepository,
                                 healthChecker = healthChecker,
-                                onNavigateBack = null,
-                                onNavigateToEditor = { proxyId ->
-                                    navController.navigate("proxy_editor?proxyId=${proxyId ?: ""}")
+                                onNavigateBack = {
+                                    navController.navigate("home") {
+                                        popUpTo("home") { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                },
+                                onNavigateToProxyManager = {
+                                    navController.navigate("proxies")
                                 }
                             )
                         }
