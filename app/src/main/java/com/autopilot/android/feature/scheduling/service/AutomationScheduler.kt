@@ -117,6 +117,23 @@ class AutomationScheduler(private val context: Context) {
         }
     }
 
+    /**
+     * Re-evaluates and reschedules all active schedules in the database.
+     * Useful when system exact alarm permission changes or after device recovery.
+     * Prevents duplicate alarms by reusing unique PendingIntents with FLAG_UPDATE_CURRENT.
+     */
+    suspend fun rescheduleAll(scheduleRepo: com.autopilot.android.data.repository.ScheduleRepository) {
+        val now = System.currentTimeMillis()
+        val activeSchedules = scheduleRepo.getActiveSchedules()
+        Log.i(TAG, "Reconciling and rescheduling ${activeSchedules.size} active schedules (exact=${canScheduleExactAlarms()})...")
+        for (schedule in activeSchedules) {
+            val nextRun = schedule.nextExecutionAt ?: schedule.targetEpochMillis
+            if (nextRun > now && schedule.enabled) {
+                scheduleAlarm(schedule)
+            }
+        }
+    }
+
     private fun createPendingIntent(scheduleId: String, profileId: String): PendingIntent {
         val intent = Intent(context, ScheduleReceiver::class.java).apply {
             action = ACTION_TRIGGER_SCHEDULE

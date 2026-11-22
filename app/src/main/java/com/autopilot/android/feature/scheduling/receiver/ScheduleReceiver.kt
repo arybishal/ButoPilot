@@ -3,6 +3,7 @@ package com.autopilot.android.feature.scheduling.receiver
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.util.Log
 import com.autopilot.android.AutoPilotApplication
 import com.autopilot.android.domain.model.ProfileStatus
@@ -89,13 +90,50 @@ class ScheduleReceiver : BroadcastReceiver() {
             return
         }
 
-        // Launch Foreground Automation Service
+        // Launch Foreground Automation Service with modern Android startup guard
         Log.i(TAG, "Launching automation profile '${schedule.profileName}' (${schedule.profileId}) for schedule '${schedule.scheduleName}'")
         app.scheduleNotificationManager.notifyScheduleStarted(schedule)
 
-        AutomationService.startAutomation(app, schedule.profileId)
+        try {
+            AutomationService.startAutomation(app, schedule.profileId)
+        } catch (e: Exception) {
+            val isFgsStartDisallowed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                e is android.app.ForegroundServiceStartNotAllowedException
+            } else {
+                false
+            }
+            val errorMessage = if (isFgsStartDisallowed) {
+                "Background foreground service launch restricted by OS: ${e.message}"
+            } else {
+                "Failed to start automation service: ${e.message}"
+            }
+            Log.e(TAG, errorMessage, e)
 
-        // Update schedule state
+            val now = System.currentTimeMillis()
+            val nextRun = if (schedule.scheduleType == ScheduleType.ONE_TIME) {
+                null
+            } else {
+                ScheduleCalculator.calculateNextExecution(schedule, now + 1000)
+            }
+
+            scheduleRepo.updateExecutionState(
+                id = schedule.id,
+                status = ScheduleStatus.FAILED,
+                nextExecutionAt = nextRun,
+                lastExecutionAt = now,
+                error = errorMessage
+            )
+
+            if (nextRun != null && schedule.enabled) {
+                val updatedSchedule = schedule.copy(nextExecutionAt = nextRun)
+                app.automationScheduler.scheduleAlarm(updatedSchedule)
+            }
+
+            app.scheduleNotificationManager.notifyScheduleFailed(schedule, errorMessage)
+            return
+        }
+
+        // Update schedule state on successful launch
         val now = System.currentTimeMillis()
         if (schedule.scheduleType == ScheduleType.ONE_TIME) {
             scheduleRepo.updateExecutionState(

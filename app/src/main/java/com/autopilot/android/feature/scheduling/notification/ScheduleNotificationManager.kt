@@ -37,6 +37,13 @@ class ScheduleNotificationManager(private val context: Context) {
         }
     }
 
+    /**
+     * Checks if notifications are permitted on the system (API 33+ or user toggle).
+     */
+    fun areNotificationsEnabled(): Boolean {
+        return androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()
+    }
+
     fun notifyScheduleStarted(schedule: AutomationSchedule) {
         val intent = Intent(context, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(

@@ -103,7 +103,7 @@ class AutomationService : Service() {
 
     private fun startAsForeground(contentText: String) {
         val notification = buildNotification(contentText, ProfileStatus.RUNNING)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
