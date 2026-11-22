@@ -24,7 +24,8 @@ class WebViewManager(
     private val context: Context,
     private val onProgressUpdate: (tabIndex: Int, progress: Int) -> Unit,
     private val onNavigationStateChange: (tabIndex: Int, isNavigating: Boolean, title: String?, url: String?) -> Unit,
-    private val onErrorEncountered: (tabIndex: Int, errorCode: Int, description: String, failingUrl: String) -> Unit
+    private val onErrorEncountered: (tabIndex: Int, errorCode: Int, description: String, failingUrl: String) -> Unit,
+    private val activeProxyProvider: (() -> com.autopilot.android.domain.model.proxy.ProxyConfiguration?)? = null
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val webViewMap = ConcurrentHashMap<Int, WebView>()
@@ -142,6 +143,31 @@ class WebViewManager(
                         val msg = "SSL Error: ${error?.primaryError}"
                         updateTabState(tabIndex) { it.copy(lastError = msg) }
                         onErrorEncountered(tabIndex, error?.primaryError ?: -1, msg, view?.url ?: "")
+                    }
+
+                    override fun onReceivedHttpAuthRequest(
+                        view: WebView?,
+                        handler: HttpAuthHandler?,
+                        host: String?,
+                        realm: String?
+                    ) {
+                        val activeProxy = activeProxyProvider?.invoke()
+                        val proxyHost = activeProxy?.host
+                        val creds = activeProxy?.credentials
+
+                        if (activeProxy != null &&
+                            !proxyHost.isNullOrBlank() &&
+                            host?.equals(proxyHost, ignoreCase = true) == true &&
+                            creds != null &&
+                            !creds.username.isNullOrBlank() &&
+                            !creds.password.isNullOrBlank()
+                        ) {
+                            // Safe: Challenge host strictly matches active proxy host
+                            handler?.proceed(creds.username, creds.password)
+                        } else {
+                            // Origin challenge or mismatch: reject to prevent credential leakage
+                            handler?.cancel()
+                        }
                     }
                 }
 

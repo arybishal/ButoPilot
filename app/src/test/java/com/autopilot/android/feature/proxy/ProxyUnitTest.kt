@@ -1,5 +1,6 @@
 package com.autopilot.android.feature.proxy
 
+import com.autopilot.android.core.security.KeyProvider
 import com.autopilot.android.core.security.ProxyCredentialEncryptor
 import com.autopilot.android.domain.model.proxy.ProxyConfiguration
 import com.autopilot.android.domain.model.proxy.ProxyCredentials
@@ -12,6 +13,20 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
+import javax.crypto.SecretKey
+import javax.crypto.spec.SecretKeySpec
+
+class TestKeyProvider : KeyProvider {
+    private val key = SecretKeySpec(
+        byteArrayOf(
+            0x41, 0x75, 0x74, 0x6F, 0x50, 0x69, 0x6C, 0x6F,
+            0x74, 0x50, 0x72, 0x6F, 0x78, 0x79, 0x53, 0x65,
+            0x63, 0x75, 0x72, 0x65, 0x4B, 0x65, 0x79, 0x32,
+            0x30, 0x32, 0x36, 0x41, 0x47, 0x59, 0x21, 0x23
+        ), "AES"
+    )
+    override fun getSecretKey(): SecretKey = key
+}
 
 class ProxyUnitTest {
 
@@ -108,7 +123,7 @@ class ProxyUnitTest {
 
     @Test
     fun testCredentialEncryptionAndDecryption() {
-        val encryptor = ProxyCredentialEncryptor()
+        val encryptor = ProxyCredentialEncryptor(TestKeyProvider())
         val originalSecret = "P@ssw0rd!SuperSecret2026#"
 
         val payload = encryptor.encrypt(originalSecret)

@@ -1,9 +1,11 @@
 package com.autopilot.android.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -16,12 +18,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.autopilot.android.data.repository.ProxyRepository
+import com.autopilot.android.domain.model.proxy.CountryFilterRule
 import com.autopilot.android.domain.model.proxy.ProxyConfiguration
 import com.autopilot.android.domain.model.proxy.ProxyHealthStatus
 import com.autopilot.android.domain.model.proxy.ProxyProtocol
 import com.autopilot.android.feature.proxy.ProxyCompatibilityChecker
 import com.autopilot.android.feature.proxy.ProxyHealthChecker
 import com.autopilot.android.feature.proxy.ProxySourceManager
+import com.autopilot.android.feature.proxy.source.ProxiflyProxySourceAdapter
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,18 +41,34 @@ fun ProxyListScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     var selectedFilter by remember { mutableStateOf("ALL") }
+    var selectedCountry by remember { mutableStateOf("ALL") }
     var showImportDialog by remember { mutableStateOf(false) }
     var proxyToDelete by remember { mutableStateOf<ProxyConfiguration?>(null) }
     var testingProxyId by remember { mutableStateOf<String?>(null) }
 
     val compatibility = remember { ProxyCompatibilityChecker.checkCompatibility(null) }
 
-    val filteredProxies = remember(proxies, selectedFilter) {
-        when (selectedFilter) {
-            "HEALTHY" -> proxies.filter { it.lastHealthStatus == ProxyHealthStatus.HEALTHY }
-            "UNHEALTHY" -> proxies.filter { it.lastHealthStatus == ProxyHealthStatus.UNHEALTHY || it.lastHealthStatus == ProxyHealthStatus.TIMEOUT }
-            "UNTESTED" -> proxies.filter { it.lastHealthStatus == ProxyHealthStatus.UNTESTED }
-            else -> proxies
+    val availableCountries = remember(proxies) {
+        proxies.mapNotNull { it.region?.trim()?.uppercase() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+    }
+
+    val filteredProxies = remember(proxies, selectedFilter, selectedCountry) {
+        proxies.filter { proxy ->
+            val matchesHealth = when (selectedFilter) {
+                "HEALTHY" -> proxy.lastHealthStatus == ProxyHealthStatus.HEALTHY
+                "UNHEALTHY" -> proxy.lastHealthStatus == ProxyHealthStatus.UNHEALTHY || proxy.lastHealthStatus == ProxyHealthStatus.TIMEOUT
+                "UNTESTED" -> proxy.lastHealthStatus == ProxyHealthStatus.UNTESTED
+                else -> true
+            }
+            val matchesCountry = when (selectedCountry) {
+                "ALL" -> true
+                "UNKNOWN" -> proxy.region.isNullOrBlank()
+                else -> proxy.region?.equals(selectedCountry, ignoreCase = true) == true
+            }
+            matchesHealth && matchesCountry
         }
     }
 
@@ -177,6 +197,44 @@ fun ProxyListScreen(
                         onClick = { selectedFilter = "UNTESTED" },
                         label = { Text("Untested (${proxies.count { it.lastHealthStatus == ProxyHealthStatus.UNTESTED }})") }
                     )
+                }
+            }
+
+            if (availableCountries.isNotEmpty()) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Region:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(end = 4.dp)
+                        )
+                        FilterChip(
+                            selected = selectedCountry == "ALL",
+                            onClick = { selectedCountry = "ALL" },
+                            label = { Text("All") }
+                        )
+                        availableCountries.forEach { country ->
+                            FilterChip(
+                                selected = selectedCountry == country,
+                                onClick = { selectedCountry = country },
+                                label = { Text(country) }
+                            )
+                        }
+                        if (proxies.any { it.region.isNullOrBlank() }) {
+                            FilterChip(
+                                selected = selectedCountry == "UNKNOWN",
+                                onClick = { selectedCountry = "UNKNOWN" },
+                                label = { Text("Unknown") }
+                            )
+                        }
+                    }
                 }
             }
 
@@ -455,52 +513,196 @@ fun ImportProxiesDialog(
     onDismiss: () -> Unit,
     onImport: (List<ProxyConfiguration>) -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
+    var selectedTab by remember { mutableStateOf(0) }
+
+    // Manual Paste Tab state
     var rawText by remember { mutableStateOf("") }
     var summary by remember { mutableStateOf<com.autopilot.android.feature.proxy.ProxyImportSummary?>(null) }
+
+    // Proxifly Tab state
+    var selectedProtocol by remember { mutableStateOf<ProxyProtocol?>(null) }
+    var countryFilterText by remember { mutableStateOf("") }
+    var isFetchingProxifly by remember { mutableStateOf(false) }
+    var proxiflyResult by remember { mutableStateOf<com.autopilot.android.feature.proxy.source.ProxiflyFetchResult?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Import Proxies") },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    "Paste proxy list lines. Formats supported:\n• host:port\n• host:port:user:pass\n• protocol://host:port\n• protocol://user:pass@host:port",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = rawText,
-                    onValueChange = {
-                        rawText = it
-                        summary = ProxySourceManager.parseAndValidateList(it, existingProxies = existingProxies)
-                    },
-                    label = { Text("Proxy list") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(150.dp),
-                    placeholder = { Text("192.168.1.100:8080\nsocks5://user:pass@10.0.0.1:1080") }
-                )
-
-                summary?.let { s ->
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "Found: ${s.validCount} valid, ${s.duplicateCount} duplicates, ${s.invalidCount} invalid.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (s.validCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                        fontWeight = FontWeight.SemiBold
+                TabRow(selectedTabIndex = selectedTab) {
+                    Tab(
+                        selected = selectedTab == 0,
+                        onClick = { selectedTab = 0 },
+                        text = { Text("Paste List") }
                     )
+                    Tab(
+                        selected = selectedTab == 1,
+                        onClick = { selectedTab = 1 },
+                        text = { Text("Proxifly Free") }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (selectedTab == 0) {
+                    Text(
+                        "Paste proxy list lines. Formats supported:\n• host:port\n• host:port:user:pass\n• protocol://host:port\n• protocol://user:pass@host:port",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = rawText,
+                        onValueChange = {
+                            rawText = it
+                            summary = ProxySourceManager.parseAndValidateList(it, existingProxies = existingProxies)
+                        },
+                        label = { Text("Proxy list") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp),
+                        placeholder = { Text("192.168.1.100:8080\nsocks5://user:pass@10.0.0.1:1080") }
+                    )
+
+                    summary?.let { s ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Found: ${s.validCount} valid, ${s.duplicateCount} duplicates, ${s.invalidCount} invalid.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (s.validCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                } else {
+                    // Proxifly Free List
+                    Text(
+                        "Fetch updated public proxy lists from Proxifly repository.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Protocol buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        FilterChip(
+                            selected = selectedProtocol == null,
+                            onClick = { selectedProtocol = null },
+                            label = { Text("All") }
+                        )
+                        FilterChip(
+                            selected = selectedProtocol == ProxyProtocol.HTTP,
+                            onClick = { selectedProtocol = ProxyProtocol.HTTP },
+                            label = { Text("HTTP") }
+                        )
+                        FilterChip(
+                            selected = selectedProtocol == ProxyProtocol.HTTPS,
+                            onClick = { selectedProtocol = ProxyProtocol.HTTPS },
+                            label = { Text("HTTPS") }
+                        )
+                        FilterChip(
+                            selected = selectedProtocol == ProxyProtocol.SOCKS5,
+                            onClick = { selectedProtocol = ProxyProtocol.SOCKS5 },
+                            label = { Text("SOCKS5") }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = countryFilterText,
+                        onValueChange = { countryFilterText = it },
+                        label = { Text("Country Filter (Optional)") },
+                        placeholder = { Text("e.g. US, DE, GB") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                isFetchingProxifly = true
+                                val countryCodes = countryFilterText.split(",")
+                                    .map { it.trim().uppercase() }
+                                    .filter { it.isNotBlank() }
+                                    .toSet()
+
+                                val filterRule = if (countryCodes.isNotEmpty()) {
+                                    CountryFilterRule(allowlist = countryCodes)
+                                } else null
+
+                                val adapter = ProxiflyProxySourceAdapter()
+                                proxiflyResult = adapter.fetchProxies(
+                                    protocolFilter = selectedProtocol,
+                                    countryFilter = filterRule,
+                                    existingProxies = existingProxies
+                                )
+                                isFetchingProxifly = false
+                            }
+                        },
+                        enabled = !isFetchingProxifly,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (isFetchingProxifly) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Fetching...")
+                        } else {
+                            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Fetch from Proxifly")
+                        }
+                    }
+
+                    proxiflyResult?.let { res ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        if (res.success) {
+                            Text(
+                                "Fetched ${res.totalFetched} total. Ready to import: ${res.validProxies.size} new (${res.duplicatesSkipped} duplicates, ${res.filteredOutByCountry} filtered by country).",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        } else {
+                            Text(
+                                "Error: ${res.errorMessage}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
                 }
             }
         },
         confirmButton = {
-            Button(
-                onClick = {
-                    summary?.importedProxies?.let { onImport(it) }
-                },
-                enabled = (summary?.validCount ?: 0) > 0
-            ) {
-                Text("Import (${summary?.validCount ?: 0})")
+            if (selectedTab == 0) {
+                Button(
+                    onClick = {
+                        summary?.importedProxies?.let { onImport(it) }
+                    },
+                    enabled = (summary?.validCount ?: 0) > 0
+                ) {
+                    Text("Import (${summary?.validCount ?: 0})")
+                }
+            } else {
+                Button(
+                    onClick = {
+                        proxiflyResult?.validProxies?.let { onImport(it) }
+                    },
+                    enabled = (proxiflyResult?.validProxies?.size ?: 0) > 0
+                ) {
+                    Text("Import (${proxiflyResult?.validProxies?.size ?: 0})")
+                }
             }
         },
         dismissButton = {

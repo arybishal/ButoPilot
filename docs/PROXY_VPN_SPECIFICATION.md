@@ -760,6 +760,22 @@ class ProxyTester(private val credentialResolver: (String) -> Pair<String, Strin
 }
 ```
 
+### 6.3 SOCKS5 RFC 1928 Protocol Handshake & Health Verification
+Rather than relying on basic TCP reachability probes, `ProxyHealthChecker` executes a comprehensive multi-stage RFC 1928 protocol handshake for all SOCKS5 proxies:
+1. **Client Greeting:** Transmits version identifier `0x05` and method list (`0x00` NO_AUTH or `0x00, 0x02` for USERNAME/PASSWORD).
+2. **Server Method Selection:** Rejects connection with `AUTH_FAILURE` if server responds with `0xFF` (No acceptable methods).
+3. **RFC 1929 Subnegotiation:** If method `0x02` is required, sends username/password payload and verifies `0x00` status byte.
+4. **CONNECT Command Probe:** Issues SOCKS5 CONNECT command targeting `www.google.com:80` using domain format (`0x03`).
+5. **Response Code Attribution:** Accurately discriminates success (`0x00` -> `HEALTHY`) from network unreachable (`0x03`), host unreachable (`0x04`), connection refused (`0x05`), or authentication failure (`AUTH_FAILURE`).
+
+### 6.4 Proxifly Public Proxy Source Integration & Country Filtering
+* **Official Source Endpoints:** `ProxiflyProxySourceAdapter` fetches structured JSON lists directly from the official Proxifly repository via CDN:
+  - All: `https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/all/data.json`
+  - Protocols: `.../protocols/http/data.json`, `.../protocols/https/data.json`, `.../protocols/socks5/data.json`
+* **JSON Mapping:** Maps `ip`, `port`, `protocol`, and `geolocation.country` to `ProxyConfiguration` records.
+* **Country Filtering (`CountryFilterRule`):** Normalizes ISO 3166-1 alpha-2 codes (e.g. `US`, `DE`, `GB`) and filters proxies before ingestion.
+* **Preservation on Failure:** If remote fetching fails, existing proxy configurations remain intact without data loss.
+
 ---
 
 ## 7. Security & KeyStore Architecture

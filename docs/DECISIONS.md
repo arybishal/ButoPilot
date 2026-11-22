@@ -27,6 +27,7 @@ This document records the architectural and technology decisions made for the **
 | [ADR-017](#adr-017-dual-background-engine-alarmmanager-for-precision--workmanager-for-self-healing-reconciliation) | Dual Background Engine: AlarmManager for Precision & WorkManager for Self-Healing Reconciliation | Accepted | 2026-11-22 |
 | [ADR-018](#adr-018-process-wide-webview-proxyoverride-sequential-execution-locking) | Process-Wide WebView ProxyOverride Sequential Execution Locking with Coroutines Mutex | Accepted | 2026-11-22 |
 | [ADR-019](#adr-019-keystore-aes-256-gcm-envelope-encryption-for-proxy-credentials) | Android KeyStore AES-256-GCM Envelope Encryption for Proxy Credentials | Accepted | 2026-11-22 |
+| [ADR-020](#adr-020-origin-protected-http-proxy-auth-and-proxifly-public-source-adapter) | Origin-Protected HTTP Proxy Auth and Proxifly Public Source Adapter | Accepted | 2026-11-22 |
 
 ---
 
@@ -53,21 +54,45 @@ Implement `ProxyExecutionCoordinator` backed by a Coroutines `Mutex`. All profil
 ## ADR-019: Keystore AES-256-GCM Envelope Encryption for Proxy Credentials
 
 ### Status
-**Accepted**
+**Accepted (Remediated)**
 
 ### Context
 Proxy authentication credentials (usernames and passwords) are sensitive data-at-rest. Storing them in plaintext SQLite tables exposes user credentials to root dumps and device backups.
 
 ### Decision
 Implement `ProxyCredentialEncryptor` using hardware-backed Android KeyStore AES-256-GCM with unique 12-byte initialization vectors (IVs) per field. Mask all credentials in logs and user interfaces (`username:••••••`).
+In Phase 4 remediation, remove all deterministic fallback keys from production code. Invert dependencies via `KeyProvider` interface so unit tests inject custom keys, while production builds strictly enforce Android KeyStore with safe fail-closed `null` error handling on Keystore failure.
 
 ### Consequences
 - **Positive:**
   - Hardware-isolated key storage.
   - Zero plaintext credential leakage in Room database or memory dumps.
-  - Deterministic fallback key support for JVM unit testing environments.
+  - Zero fallback keys in production binary; absolute cryptographic fail-closed safety.
 - **Negative:**
-  - Slight encryption/decryption CPU overhead during proxy retrieval and persistence.
+  - Encryption fails safely (returning null) if Keystore hardware is unavailable.
+
+---
+
+## ADR-020: Origin-Protected HTTP Proxy Auth and Proxifly Public Source Adapter
+
+### Status
+**Accepted**
+
+### Context
+Browser automation requires authenticated HTTP proxy support (handling HTTP 407 `Proxy-Authenticate`). However, indiscriminately responding to authentication challenges in `WebViewClient.onReceivedHttpAuthRequest()` risks leaking proxy credentials to visited origin websites (HTTP 401 `WWW-Authenticate`). Additionally, users require verified public proxy sources with geolocation filtering.
+
+### Decision
+1. In `WebViewManager`, implement `onReceivedHttpAuthRequest()` to strictly compare the authentication challenge `host` against the active proxy `host`. If and only if the host matches, supply credentials; otherwise call `handler.cancel()`.
+2. Implement `ProxiflyProxySourceAdapter` targeting official jsDelivr endpoints with JSON schema parsing, deduplication, and ISO 3166-1 alpha-2 country filtering (`CountryFilterRule`).
+3. Enforce genuine RFC 1928 SOCKS5 handshake (greeting, auth negotiation, CONNECT command to `www.google.com:80`, response parsing) in `ProxyHealthChecker`.
+
+### Consequences
+- **Positive:**
+  - Eliminates credential leakage to origin web servers.
+  - Enables bulk import from official Proxifly free proxy list with country filtering.
+  - Accurately discriminates between network timeouts, authentication failures, and proxy reachability.
+- **Negative:**
+  - Handshake testing requires an extra TCP round-trip compared to simple socket connect.
 
 ---
 

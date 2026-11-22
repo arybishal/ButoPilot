@@ -179,6 +179,8 @@ class AutomationService : Service() {
     }
 
     override fun onDestroy() {
+        val app = application as? AutoPilotApplication
+        app?.automationCoordinator?.stop()
         observerJob?.cancel()
         super.onDestroy()
     }

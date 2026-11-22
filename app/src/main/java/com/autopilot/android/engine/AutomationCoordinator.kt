@@ -65,6 +65,9 @@ class AutomationCoordinator(
                 errorMessage = "Tab $tabIndex error: $description on $failingUrl"
             )
             updateTabStates()
+        },
+        activeProxyProvider = {
+            proxyExecutionCoordinator?.activeProxy?.value
         }
     )
 

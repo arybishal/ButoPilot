@@ -146,16 +146,137 @@ class ProxyHealthChecker(
     }
 
     private fun checkSocksProxy(proxy: ProxyConfiguration, startTime: Long): ProxyTestResult {
-        // Direct socket handshake check to verify SOCKS proxy host and port reachability
         return Socket().use { socket ->
+            socket.soTimeout = readTimeoutMs.toInt()
             socket.connect(InetSocketAddress(proxy.host, proxy.port), connectTimeoutMs.toInt())
+
+            val output = socket.getOutputStream()
+            val input = socket.getInputStream()
+
+            val username = proxy.credentials?.username
+            val password = proxy.credentials?.password
+            val hasAuth = !username.isNullOrBlank() && !password.isNullOrBlank()
+
+            // 1. SOCKS5 Client Greeting
+            if (hasAuth) {
+                // Methods: 0x00 (NO AUTH), 0x02 (USER/PASS)
+                output.write(byteArrayOf(0x05, 0x02, 0x00, 0x02))
+            } else {
+                // Method: 0x00 (NO AUTH)
+                output.write(byteArrayOf(0x05, 0x01, 0x00))
+            }
+            output.flush()
+
+            // 2. Read Server Method Selection
+            val serverVer = input.read()
+            if (serverVer == -1) throw IOException("SOCKS5 server closed connection during greeting")
+            if (serverVer != 0x05) throw IOException("Invalid SOCKS version in server greeting: $serverVer (expected 0x05)")
+
+            val selectedMethod = input.read()
+            if (selectedMethod == -1) throw IOException("SOCKS5 server closed connection reading auth method")
+            if (selectedMethod == 0xFF) {
+                return ProxyTestResult(
+                    proxyId = proxy.id,
+                    status = ProxyHealthStatus.AUTH_FAILURE,
+                    latencyMs = System.currentTimeMillis() - startTime,
+                    timestamp = System.currentTimeMillis(),
+                    errorMessage = "SOCKS5 server rejected authentication methods (0xFF: NO ACCEPTABLE METHODS)"
+                )
+            }
+
+            // 3. Username/Password Subnegotiation (RFC 1929)
+            if (selectedMethod == 0x02) {
+                if (!hasAuth) {
+                    return ProxyTestResult(
+                        proxyId = proxy.id,
+                        status = ProxyHealthStatus.AUTH_FAILURE,
+                        latencyMs = System.currentTimeMillis() - startTime,
+                        timestamp = System.currentTimeMillis(),
+                        errorMessage = "SOCKS5 server requires authentication (method 0x02) but no credentials were provided."
+                    )
+                }
+
+                val uBytes = username!!.toByteArray(Charsets.UTF_8)
+                val pBytes = password!!.toByteArray(Charsets.UTF_8)
+                val authPacket = ByteArray(3 + uBytes.size + pBytes.size)
+                authPacket[0] = 0x01 // Subnegotiation version
+                authPacket[1] = uBytes.size.toByte()
+                System.arraycopy(uBytes, 0, authPacket, 2, uBytes.size)
+                authPacket[2 + uBytes.size] = pBytes.size.toByte()
+                System.arraycopy(pBytes, 0, authPacket, 3 + uBytes.size, pBytes.size)
+
+                output.write(authPacket)
+                output.flush()
+
+                val authVer = input.read()
+                val authStatus = input.read()
+                if (authStatus != 0x00) {
+                    return ProxyTestResult(
+                        proxyId = proxy.id,
+                        status = ProxyHealthStatus.AUTH_FAILURE,
+                        latencyMs = System.currentTimeMillis() - startTime,
+                        timestamp = System.currentTimeMillis(),
+                        errorMessage = "SOCKS5 authentication failed with status code $authStatus"
+                    )
+                }
+            }
+
+            // 4. SOCKS5 CONNECT probe command to verify tunneling (probe www.google.com:80)
+            val probeHost = "www.google.com"
+            val probePort = 80
+            val hostBytes = probeHost.toByteArray(Charsets.UTF_8)
+
+            val connectCmd = ByteArray(4 + 1 + hostBytes.size + 2)
+            connectCmd[0] = 0x05 // SOCKS version 5
+            connectCmd[1] = 0x01 // CMD: CONNECT
+            connectCmd[2] = 0x00 // RSV: reserved
+            connectCmd[3] = 0x03 // ATYP: DOMAINNAME
+            connectCmd[4] = hostBytes.size.toByte()
+            System.arraycopy(hostBytes, 0, connectCmd, 5, hostBytes.size)
+            connectCmd[5 + hostBytes.size] = ((probePort ushr 8) and 0xFF).toByte()
+            connectCmd[5 + hostBytes.size + 1] = (probePort and 0xFF).toByte()
+
+            output.write(connectCmd)
+            output.flush()
+
+            // 5. Read SOCKS5 Response
+            val respVer = input.read()
+            val respCode = input.read()
+            val respRsv = input.read()
+            val respAtyp = input.read()
+
+            if (respVer == -1 || respCode == -1) {
+                throw IOException("SOCKS5 server closed connection during CONNECT response")
+            }
+
             val elapsed = System.currentTimeMillis() - startTime
-            ProxyTestResult(
-                proxyId = proxy.id,
-                status = ProxyHealthStatus.HEALTHY,
-                latencyMs = elapsed,
-                timestamp = System.currentTimeMillis()
-            )
+            if (respCode == 0x00) {
+                ProxyTestResult(
+                    proxyId = proxy.id,
+                    status = ProxyHealthStatus.HEALTHY,
+                    latencyMs = elapsed,
+                    timestamp = System.currentTimeMillis()
+                )
+            } else {
+                val repDesc = when (respCode) {
+                    0x01 -> "General SOCKS server failure (0x01)"
+                    0x02 -> "Connection not allowed by ruleset (0x02)"
+                    0x03 -> "Network unreachable (0x03)"
+                    0x04 -> "Host unreachable (0x04)"
+                    0x05 -> "Connection refused (0x05)"
+                    0x06 -> "TTL expired (0x06)"
+                    0x07 -> "Command not supported (0x07)"
+                    0x08 -> "Address type not supported (0x08)"
+                    else -> "SOCKS error code ($respCode)"
+                }
+                ProxyTestResult(
+                    proxyId = proxy.id,
+                    status = ProxyHealthStatus.UNHEALTHY,
+                    latencyMs = elapsed,
+                    timestamp = System.currentTimeMillis(),
+                    errorMessage = "SOCKS5 CONNECT failed: $repDesc"
+                )
+            }
         }
     }
 

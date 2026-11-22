@@ -168,6 +168,18 @@ val database = Room.databaseBuilder(context, AppDatabase::class.java, "bautopilo
 * Configuration enforces `BiometricManager.Authenticators.BIOMETRIC_STRONG`.
 * Cryptographic Binding: Authentication must unlock an active `BiometricPrompt.CryptoObject` initialized with an Android Keystore cipher. If the device biometric enrollment changes (e.g., a new fingerprint is enrolled), the Keystore key is automatically invalidated via `.setInvalidatedByBiometricEnrollment(true)`.
 
+### 3.6 Proxy Credential Encryption & Origin Isolation (DEF-402, DEF-403)
+* **Zero Deterministic Fallback Keys in Production (DEF-402):**
+  * `ProxyCredentialEncryptor` enforces hardware-backed AES-256-GCM encryption using `AndroidKeyStoreProvider`.
+  * Production binaries contain zero deterministic/hardcoded fallback encryption keys.
+  * Dependency inversion is enforced via `interface KeyProvider`: test harnesses inject explicit ephemeral mock keys (`TestKeyProvider`), while production strictly initializes against `"AndroidKeyStore"`.
+  * If Android KeyStore initialization, key generation, or cipher operations fail, encryption methods fail-closed and return `null`. Plaintext credentials are never stored, and encryption is never silently downgraded.
+* **Origin Challenge Isolation (DEF-403):**
+  * When executing authenticated HTTP proxies, `WebViewClient.onReceivedHttpAuthRequest()` intercepts proxy authentication challenges (HTTP 407 `Proxy-Authenticate`).
+  * To prevent proxy credential leakage to visited origin servers (HTTP 401 `WWW-Authenticate`), the engine verifies `host.equals(activeProxy.host, ignoreCase = true)`.
+  * If the challenge originates from the active proxy host, credentials are submitted via `handler.proceed(username, password)`.
+  * If the challenge originates from any other host (including visited websites), the request is immediately rejected via `handler.cancel()`, ensuring proxy credentials never leak to external origins.
+
 ---
 
 ## 4. WebView Hardening & Isolation

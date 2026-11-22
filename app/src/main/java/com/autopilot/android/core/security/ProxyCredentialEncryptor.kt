@@ -9,71 +9,78 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.SecretKeySpec
 
 data class EncryptedPayload(
     val ciphertextBase64: String,
     val ivBase64: String
 )
 
-class ProxyCredentialEncryptor {
+interface KeyProvider {
+    fun getSecretKey(): SecretKey
+}
+
+class AndroidKeyStoreProvider(
+    private val keyAlias: String = KEY_ALIAS
+) : KeyProvider {
 
     companion object {
-        private const val KEY_ALIAS = "autopilot_proxy_keystore_key"
-        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        const val KEY_ALIAS = "autopilot_proxy_keystore_key"
+        const val ANDROID_KEYSTORE = "AndroidKeyStore"
+    }
+
+    override fun getSecretKey(): SecretKey {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        if (!keyStore.containsAlias(keyAlias)) {
+            val keyGen = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+            val spec = KeyGenParameterSpec.Builder(
+                keyAlias,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256)
+                .build()
+            keyGen.init(spec)
+            return keyGen.generateKey()
+        }
+        val entry = keyStore.getEntry(keyAlias, null) as? KeyStore.SecretKeyEntry
+            ?: throw IllegalStateException("KeyStore entry for alias '$keyAlias' is not a SecretKeyEntry")
+        return entry.secretKey
+    }
+}
+
+class ProxyCredentialEncryptor(
+    private val keyProvider: KeyProvider = AndroidKeyStoreProvider()
+) {
+
+    companion object {
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val GCM_TAG_LENGTH = 128
         private const val IV_LENGTH_BYTES = 12
-
-        // Deterministic fallback key for JVM unit tests where AndroidKeyStore is absent
-        private val JVM_FALLBACK_KEY_BYTES = byteArrayOf(
-            0x41, 0x75, 0x74, 0x6F, 0x50, 0x69, 0x6C, 0x6F,
-            0x74, 0x50, 0x72, 0x6F, 0x78, 0x79, 0x53, 0x65,
-            0x63, 0x75, 0x72, 0x65, 0x4B, 0x65, 0x79, 0x32,
-            0x30, 0x32, 0x36, 0x41, 0x47, 0x59, 0x21, 0x23
-        ) // 32 bytes = 256 bits
     }
 
     private val secureRandom = SecureRandom()
 
-    private fun getSecretKey(): SecretKey {
-        return try {
-            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-            if (!keyStore.containsAlias(KEY_ALIAS)) {
-                val keyGen = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
-                val spec = KeyGenParameterSpec.Builder(
-                    KEY_ALIAS,
-                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-                )
-                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                    .setKeySize(256)
-                    .build()
-                keyGen.init(spec)
-                keyGen.generateKey()
-            } else {
-                (keyStore.getEntry(KEY_ALIAS, null) as KeyStore.SecretKeyEntry).secretKey
-            }
-        } catch (e: Exception) {
-            // Fallback for JVM unit tests without AndroidKeyStore
-            SecretKeySpec(JVM_FALLBACK_KEY_BYTES, "AES")
-        }
-    }
-
     fun encrypt(plaintext: String?): EncryptedPayload? {
         if (plaintext.isNullOrEmpty()) return null
 
-        val iv = ByteArray(IV_LENGTH_BYTES)
-        secureRandom.nextBytes(iv)
+        return try {
+            val iv = ByteArray(IV_LENGTH_BYTES)
+            secureRandom.nextBytes(iv)
 
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, getSecretKey(), GCMParameterSpec(GCM_TAG_LENGTH, iv))
+            val secretKey = keyProvider.getSecretKey()
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey, GCMParameterSpec(GCM_TAG_LENGTH, iv))
 
-        val ciphertext = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
-        return EncryptedPayload(
-            ciphertextBase64 = encodeBase64(ciphertext),
-            ivBase64 = encodeBase64(iv)
-        )
+            val ciphertext = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
+            EncryptedPayload(
+                ciphertextBase64 = encodeBase64(ciphertext),
+                ivBase64 = encodeBase64(iv)
+            )
+        } catch (e: Exception) {
+            // Safe explicit failure: never downgrade encryption or store plaintext
+            null
+        }
     }
 
     fun decrypt(ciphertextBase64: String?, ivBase64: String?): String? {
@@ -83,12 +90,14 @@ class ProxyCredentialEncryptor {
             val ciphertext = decodeBase64(ciphertextBase64)
             val iv = decodeBase64(ivBase64)
 
+            val secretKey = keyProvider.getSecretKey()
             val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.DECRYPT_MODE, getSecretKey(), GCMParameterSpec(GCM_TAG_LENGTH, iv))
+            cipher.init(Cipher.DECRYPT_MODE, secretKey, GCMParameterSpec(GCM_TAG_LENGTH, iv))
 
             val decryptedBytes = cipher.doFinal(ciphertext)
             String(decryptedBytes, Charsets.UTF_8)
         } catch (e: Exception) {
+            // Return null on decryption error; never expose partial or corrupted plaintext
             null
         }
     }

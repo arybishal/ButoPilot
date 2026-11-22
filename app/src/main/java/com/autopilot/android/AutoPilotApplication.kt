@@ -6,12 +6,16 @@ import android.app.NotificationManager
 import android.os.Build
 import com.autopilot.android.data.local.AutoPilotDatabase
 import com.autopilot.android.data.repository.*
+import com.autopilot.android.domain.model.ProfileStatus
 import com.autopilot.android.engine.AutomationCoordinator
 import com.autopilot.android.feature.proxy.ProxyExecutionCoordinator
 import com.autopilot.android.feature.proxy.ProxyHealthChecker
 import com.autopilot.android.feature.scheduling.notification.ScheduleNotificationManager
 import com.autopilot.android.feature.scheduling.service.AutomationScheduler
 import com.autopilot.android.feature.scheduling.worker.ScheduleReconciliationWorker
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class AutoPilotApplication : Application() {
 
@@ -79,6 +83,23 @@ class AutoPilotApplication : Application() {
 
         // Enqueue WorkManager periodic background reconciliation
         ScheduleReconciliationWorker.enqueuePeriodic(this)
+
+        // Process death recovery: reset lingering proxy routing and reconcile stale RUNNING profiles to IDLE
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                proxyExecutionCoordinator.resetAndRelease()
+            } catch (e: Exception) {
+                // Ignore during init
+            }
+            try {
+                val runningProfiles = profileRepository.getAllProfiles().filter { it.status == ProfileStatus.RUNNING }
+                for (p in runningProfiles) {
+                    profileRepository.updateStatus(p.id, ProfileStatus.IDLE)
+                }
+            } catch (e: Exception) {
+                // Ignore during init
+            }
+        }
     }
 
     private fun createNotificationChannels() {
