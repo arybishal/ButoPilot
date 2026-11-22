@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.autopilot.android.domain.UrlValidatorTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-11-22T13:05:17.196Z" hostname="POTATOCHIPS" time="0.011">
+  <properties/>
+  <testcase name="normalizeAndValidate_invalidUrls_returnsNull" classname="com.autopilot.android.domain.UrlValidatorTest" time="0.005"/>
+  <testcase name="extractHost_returnsCorrectDomain" classname="com.autopilot.android.domain.UrlValidatorTest" time="0.0"/>
+  <testcase name="isDomainAllowed_checksAllowedListAndSubdomains" classname="com.autopilot.android.domain.UrlValidatorTest" time="0.0"/>
+  <testcase name="normalizeAndValidate_validHttpAndHttps" classname="com.autopilot.android.domain.UrlValidatorTest" time="0.0"/>
+  <testcase name="normalizeAndValidate_missingScheme_prefixesHttps" classname="com.autopilot.android.domain.UrlValidatorTest" time="0.0"/>
+  <testcase name="parseMultiple_multilineAndSeparators" classname="com.autopilot.android.domain.UrlValidatorTest" time="0.004"/>
+  <testcase name="isDomainAllowed_emptyListAllowsAll" classname="com.autopilot.android.domain.UrlValidatorTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
