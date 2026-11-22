@@ -38,6 +38,8 @@ data class ProxiflyFetchResult(
     val validProxies: List<ProxyConfiguration>,
     val filteredOutByCountry: Int,
     val duplicatesSkipped: Int,
+    val invalidRecords: Int = 0,
+    val missingCountryCount: Int = 0,
     val timestamp: Long = System.currentTimeMillis(),
     val errorMessage: String? = null
 )
@@ -107,15 +109,22 @@ class ProxiflyProxySourceAdapter(
                 val validList = mutableListOf<ProxyConfiguration>()
                 var filteredByCountry = 0
                 var duplicates = 0
+                var invalidRecords = 0
+                var missingCountryCount = 0
 
                 for (item in items) {
-                    val host = item.ip?.trim() ?: continue
-                    val port = item.port ?: continue
-                    if (!ProxyValidator.isValidPort(port)) continue
-                    if (!ProxyValidator.isValidHost(host)) continue
+                    val host = item.ip?.trim()
+                    val port = item.port
+                    if (host.isNullOrBlank() || port == null || !ProxyValidator.isValidPort(port) || !ProxyValidator.isValidHost(host)) {
+                        invalidRecords++
+                        continue
+                    }
 
                     val rawCountry = item.geolocation?.country
                     val countryCode = CountryCodeValidator.normalize(rawCountry)
+                    if (countryCode == null) {
+                        missingCountryCount++
+                    }
 
                     if (countryFilter != null && !countryFilter.matches(countryCode)) {
                         filteredByCountry++
@@ -159,7 +168,9 @@ class ProxiflyProxySourceAdapter(
                     totalFetched = items.size,
                     validProxies = validList,
                     filteredOutByCountry = filteredByCountry,
-                    duplicatesSkipped = duplicates
+                    duplicatesSkipped = duplicates,
+                    invalidRecords = invalidRecords,
+                    missingCountryCount = missingCountryCount
                 )
             }
         } catch (e: Exception) {

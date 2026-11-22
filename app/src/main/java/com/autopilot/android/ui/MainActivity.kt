@@ -5,11 +5,20 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.autopilot.android.AutoPilotApplication
 import com.autopilot.android.ui.screen.*
@@ -32,14 +41,174 @@ class MainActivity : ComponentActivity() {
         setContent {
             AutoPilotTheme {
                 val navController = rememberNavController()
+                val navBackStackEntry by navController.currentBackStackEntryAsState()
+                val currentRoute = navBackStackEntry?.destination?.route
 
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                val rootTabs = listOf("home", "automations", "vpn", "profile")
+                val showBottomBar = currentRoute in rootTabs
+
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    bottomBar = {
+                        if (showBottomBar) {
+                            NavigationBar(
+                                containerColor = Color.White,
+                                tonalElevation = 8.dp
+                            ) {
+                                // 1. Home Tab
+                                NavigationBarItem(
+                                    selected = currentRoute == "home",
+                                    onClick = {
+                                        if (currentRoute != "home") {
+                                            navController.navigate("home") {
+                                                popUpTo("home") { saveState = true }
+                                                launchSingleTop = true
+                                                restoreState = true
+                                            }
+                                        }
+                                    },
+                                    icon = { Icon(Icons.Filled.Home, contentDescription = "Home") },
+                                    label = {
+                                        Text(
+                                            "Home",
+                                            fontWeight = if (currentRoute == "home") FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = Color(0xFF1565C0),
+                                        selectedTextColor = Color(0xFF1565C0),
+                                        indicatorColor = Color(0xFFE0F2FE),
+                                        unselectedIconColor = Color(0xFF64748B),
+                                        unselectedTextColor = Color(0xFF64748B)
+                                    )
+                                )
+
+                                // 2. Automations Tab
+                                NavigationBarItem(
+                                    selected = currentRoute == "automations",
+                                    onClick = {
+                                        if (currentRoute != "automations") {
+                                            navController.navigate("automations") {
+                                                popUpTo("home") { saveState = true }
+                                                launchSingleTop = true
+                                                restoreState = true
+                                            }
+                                        }
+                                    },
+                                    icon = { Icon(Icons.Filled.PlayCircle, contentDescription = "Automations") },
+                                    label = {
+                                        Text(
+                                            "Automations",
+                                            fontWeight = if (currentRoute == "automations") FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = Color(0xFF1565C0),
+                                        selectedTextColor = Color(0xFF1565C0),
+                                        indicatorColor = Color(0xFFE0F2FE),
+                                        unselectedIconColor = Color(0xFF64748B),
+                                        unselectedTextColor = Color(0xFF64748B)
+                                    )
+                                )
+
+                                // 3. VPN Tab
+                                NavigationBarItem(
+                                    selected = currentRoute == "vpn",
+                                    onClick = {
+                                        if (currentRoute != "vpn") {
+                                            navController.navigate("vpn") {
+                                                popUpTo("home") { saveState = true }
+                                                launchSingleTop = true
+                                                restoreState = true
+                                            }
+                                        }
+                                    },
+                                    icon = { Icon(Icons.Filled.Public, contentDescription = "VPN") },
+                                    label = {
+                                        Text(
+                                            "VPN",
+                                            fontWeight = if (currentRoute == "vpn") FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = Color(0xFF1565C0),
+                                        selectedTextColor = Color(0xFF1565C0),
+                                        indicatorColor = Color(0xFFE0F2FE),
+                                        unselectedIconColor = Color(0xFF64748B),
+                                        unselectedTextColor = Color(0xFF64748B)
+                                    )
+                                )
+
+                                // 4. Profile Tab
+                                NavigationBarItem(
+                                    selected = currentRoute == "profile",
+                                    onClick = {
+                                        if (currentRoute != "profile") {
+                                            navController.navigate("profile") {
+                                                popUpTo("home") { saveState = true }
+                                                launchSingleTop = true
+                                                restoreState = true
+                                            }
+                                        }
+                                    },
+                                    icon = { Icon(Icons.Filled.AccountCircle, contentDescription = "Profile") },
+                                    label = {
+                                        Text(
+                                            "Profile",
+                                            fontWeight = if (currentRoute == "profile") FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = Color(0xFF1565C0),
+                                        selectedTextColor = Color(0xFF1565C0),
+                                        indicatorColor = Color(0xFFE0F2FE),
+                                        unselectedIconColor = Color(0xFF64748B),
+                                        unselectedTextColor = Color(0xFF64748B)
+                                    )
+                                )
+                            }
+                        }
+                    }
+                ) { innerPadding ->
                     NavHost(
                         navController = navController,
-                        startDestination = "profiles",
+                        startDestination = "home",
                         modifier = Modifier.padding(innerPadding)
                     ) {
-                        composable("profiles") {
+                        // --- 1. Home Tab ---
+                        composable("home") {
+                            HomeScreen(
+                                profileRepository = profileRepository,
+                                scheduleRepository = scheduleRepository,
+                                coordinator = coordinator,
+                                onNavigateToEditor = { profileId ->
+                                    navController.navigate("editor?profileId=${profileId ?: ""}")
+                                },
+                                onNavigateToScheduleEditor = { scheduleId ->
+                                    navController.navigate("schedule_editor?scheduleId=${scheduleId ?: ""}")
+                                },
+                                onNavigateToAutomationsTab = {
+                                    navController.navigate("automations") {
+                                        popUpTo("home") { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                },
+                                onNavigateToProfileTab = {
+                                    navController.navigate("profile") {
+                                        popUpTo("home") { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                },
+                                onNavigateToMonitor = {
+                                    navController.navigate("monitor")
+                                }
+                            )
+                        }
+
+                        // --- 2. Automations Tab ---
+                        composable("automations") {
                             ProfileListScreen(
                                 profileRepository = profileRepository,
                                 coordinator = coordinator,
@@ -56,11 +225,51 @@ class MainActivity : ComponentActivity() {
                                     navController.navigate("schedules")
                                 },
                                 onNavigateToProxies = {
-                                    navController.navigate("proxies")
+                                    navController.navigate("vpn")
                                 }
                             )
                         }
 
+                        // --- 3. VPN Tab ---
+                        composable("vpn") {
+                            ProxyListScreen(
+                                proxyRepository = proxyRepository,
+                                healthChecker = healthChecker,
+                                onNavigateBack = null,
+                                onNavigateToEditor = { proxyId ->
+                                    navController.navigate("proxy_editor?proxyId=${proxyId ?: ""}")
+                                }
+                            )
+                        }
+
+                        // Also keep "proxies" as route alias
+                        composable("proxies") {
+                            ProxyListScreen(
+                                proxyRepository = proxyRepository,
+                                healthChecker = healthChecker,
+                                onNavigateBack = { navController.popBackStack() },
+                                onNavigateToEditor = { proxyId ->
+                                    navController.navigate("proxy_editor?proxyId=${proxyId ?: ""}")
+                                }
+                            )
+                        }
+
+                        // --- 4. Profile Tab ---
+                        composable("profile") {
+                            ProfileScreen(
+                                onNavigateToHistory = {
+                                    navController.navigate("history")
+                                },
+                                onNavigateToSchedules = {
+                                    navController.navigate("schedules")
+                                },
+                                onNavigateToProxies = {
+                                    navController.navigate("vpn")
+                                }
+                            )
+                        }
+
+                        // --- Sub-Screens ---
                         composable("editor?profileId={profileId}") { backStackEntry ->
                             val profileId = backStackEntry.arguments?.getString("profileId")?.takeIf { it.isNotBlank() }
                             ProfileEditorScreen(
@@ -104,17 +313,6 @@ class MainActivity : ComponentActivity() {
                                 profileRepository = profileRepository,
                                 scheduler = scheduler,
                                 onNavigateBack = { navController.popBackStack() }
-                            )
-                        }
-
-                        composable("proxies") {
-                            ProxyListScreen(
-                                proxyRepository = proxyRepository,
-                                healthChecker = healthChecker,
-                                onNavigateBack = { navController.popBackStack() },
-                                onNavigateToEditor = { proxyId ->
-                                    navController.navigate("proxy_editor?proxyId=${proxyId ?: ""}")
-                                }
                             )
                         }
 

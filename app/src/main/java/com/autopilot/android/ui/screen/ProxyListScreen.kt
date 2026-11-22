@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -33,7 +34,7 @@ import kotlinx.coroutines.launch
 fun ProxyListScreen(
     proxyRepository: ProxyRepository,
     healthChecker: ProxyHealthChecker,
-    onNavigateBack: () -> Unit,
+    onNavigateBack: (() -> Unit)? = null,
     onNavigateToEditor: (String?) -> Unit
 ) {
     val proxies by proxyRepository.getAllProxiesFlow().collectAsState(initial = emptyList())
@@ -78,8 +79,10 @@ fun ProxyListScreen(
             TopAppBar(
                 title = { Text("VPN & Proxy Management", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    if (onNavigateBack != null) {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
                     }
                 },
                 actions = {
