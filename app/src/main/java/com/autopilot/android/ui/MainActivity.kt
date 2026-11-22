@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -71,6 +72,9 @@ class MainActivity : ComponentActivity() {
                                     label = {
                                         Text(
                                             "Home",
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            fontSize = 11.sp,
                                             fontWeight = if (currentRoute == "home") FontWeight.Bold else FontWeight.Normal
                                         )
                                     },
@@ -99,6 +103,9 @@ class MainActivity : ComponentActivity() {
                                     label = {
                                         Text(
                                             "Automations",
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            fontSize = 11.sp,
                                             fontWeight = if (currentRoute == "automations") FontWeight.Bold else FontWeight.Normal
                                         )
                                     },
@@ -127,6 +134,9 @@ class MainActivity : ComponentActivity() {
                                     label = {
                                         Text(
                                             "VPN",
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            fontSize = 11.sp,
                                             fontWeight = if (currentRoute == "vpn") FontWeight.Bold else FontWeight.Normal
                                         )
                                     },
@@ -155,6 +165,9 @@ class MainActivity : ComponentActivity() {
                                     label = {
                                         Text(
                                             "Profile",
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            fontSize = 11.sp,
                                             fontWeight = if (currentRoute == "profile") FontWeight.Bold else FontWeight.Normal
                                         )
                                     },
@@ -209,6 +222,26 @@ class MainActivity : ComponentActivity() {
 
                         // --- 2. Automations Tab ---
                         composable("automations") {
+                            CreateAutomationScreen(
+                                profileRepository = profileRepository,
+                                coordinator = coordinator,
+                                onNavigateBack = {
+                                    navController.navigate("home") {
+                                        popUpTo("home") { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                },
+                                onNavigateToMonitor = {
+                                    navController.navigate("monitor")
+                                },
+                                onNavigateToSavedProfiles = {
+                                    navController.navigate("saved_profiles")
+                                }
+                            )
+                        }
+
+                        composable("saved_profiles") {
                             ProfileListScreen(
                                 profileRepository = profileRepository,
                                 coordinator = coordinator,
