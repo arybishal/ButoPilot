@@ -30,6 +30,7 @@ class WebViewManager(
     private val mainHandler = Handler(Looper.getMainLooper())
     private val webViewMap = ConcurrentHashMap<Int, WebView>()
     private val tabStateMap = ConcurrentHashMap<Int, TabState>()
+    private val navigationTimeoutMap = ConcurrentHashMap<Int, Runnable>()
     private var scriptOnPageFinished: String? = null
 
     /** Script injected after every completed page load; pass null to disable. */
@@ -86,6 +87,27 @@ class WebViewManager(
                 webViewClient = object : WebViewClient() {
                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                         super.onPageStarted(view, url, favicon)
+                        navigationTimeoutMap.remove(tabIndex)?.let { mainHandler.removeCallbacks(it) }
+
+                        val watchdog = Runnable {
+                            val wv = webViewMap[tabIndex]
+                            val state = tabStateMap[tabIndex]
+                            if (wv != null && state?.isNavigating == true) {
+                                wv.stopLoading()
+                                val timeoutMsg = "Navigation timed out after 25s"
+                                updateTabState(tabIndex) {
+                                    it.copy(
+                                        isNavigating = false,
+                                        lastError = timeoutMsg
+                                    )
+                                }
+                                onNavigationStateChange(tabIndex, false, wv.title, wv.url)
+                                onErrorEncountered(tabIndex, -8 /* ERROR_TIMEOUT */, timeoutMsg, wv.url ?: "")
+                            }
+                        }
+                        navigationTimeoutMap[tabIndex] = watchdog
+                        mainHandler.postDelayed(watchdog, 25000L)
+
                         updateTabState(tabIndex) {
                             it.copy(
                                 isNavigating = true,
@@ -98,6 +120,7 @@ class WebViewManager(
 
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
+                        navigationTimeoutMap.remove(tabIndex)?.let { mainHandler.removeCallbacks(it) }
                         updateTabState(tabIndex) {
                             it.copy(
                                 isNavigating = false,
@@ -117,6 +140,7 @@ class WebViewManager(
                         failingUrl: String?
                     ) {
                         super.onReceivedError(view, errorCode, description, failingUrl)
+                        navigationTimeoutMap.remove(tabIndex)?.let { mainHandler.removeCallbacks(it) }
                         val errDesc = description ?: "Navigation Error ($errorCode)"
                         updateTabState(tabIndex) {
                             it.copy(
@@ -300,6 +324,8 @@ class WebViewManager(
      */
     fun destroyAll() {
         mainHandler.post {
+            navigationTimeoutMap.values.forEach { mainHandler.removeCallbacks(it) }
+            navigationTimeoutMap.clear()
             webViewMap.forEach { (index, wv) ->
                 try {
                     wv.stopLoading()

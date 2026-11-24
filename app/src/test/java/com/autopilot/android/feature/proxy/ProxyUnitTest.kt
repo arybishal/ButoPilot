@@ -362,4 +362,36 @@ class ProxyUnitTest {
         assertTrue(canRunDirect)
         assertNull(errorDirect)
     }
+
+    @Test
+    fun testHttpProbeFailureNeverMarksProxyHealthyEvenIfPortIsOpen() = runBlocking {
+        // Create a dummy server that accepts TCP connection but immediately closes or hangs on HTTP
+        val server = java.net.ServerSocket(0)
+        val port = server.localPort
+        val serverThread = Thread {
+            try {
+                val sock = server.accept()
+                // Do not respond with HTTP 200/204, close immediately
+                sock.close()
+            } catch (e: Exception) {
+            } finally {
+                server.close()
+            }
+        }
+        serverThread.start()
+
+        val checker = ProxyHealthChecker(connectTimeoutMs = 1500, readTimeoutMs = 1500)
+        val brokenProxy = ProxyConfiguration(
+            id = "broken-proxy",
+            name = "Broken Proxy",
+            protocol = ProxyProtocol.HTTP,
+            host = "127.0.0.1",
+            port = port
+        )
+
+        val result = checker.checkHealth(brokenProxy)
+        // Must NOT be HEALTHY!
+        assertNotEquals("Proxy that cannot forward HTTP must NEVER be marked HEALTHY", ProxyHealthStatus.HEALTHY, result.status)
+        serverThread.join(2000)
+    }
 }

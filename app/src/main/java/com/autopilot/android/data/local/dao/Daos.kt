@@ -140,6 +140,9 @@ interface ProxyDao {
     @Query("DELETE FROM proxy_configurations WHERE id = :id")
     suspend fun deleteById(id: String)
 
+    @Query("DELETE FROM proxy_configurations WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>): Int
+
     @Query("DELETE FROM proxy_configurations WHERE lastHealthStatus IN ('UNHEALTHY', 'TIMEOUT', 'AUTH_FAILURE')")
     suspend fun deleteUnhealthy(): Int
 

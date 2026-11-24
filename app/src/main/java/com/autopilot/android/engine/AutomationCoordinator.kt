@@ -1,6 +1,7 @@
 package com.autopilot.android.engine
 
 import android.content.Context
+import com.autopilot.android.data.local.DefaultProxySeedData
 import com.autopilot.android.data.repository.HistoryRepository
 import com.autopilot.android.data.repository.ProfileRepository
 import com.autopilot.android.data.repository.ProxyRepository
@@ -9,7 +10,9 @@ import com.autopilot.android.domain.model.ExecutionHistoryItem
 import com.autopilot.android.domain.model.ExecutionMode
 import com.autopilot.android.domain.model.ProfileStatus
 import com.autopilot.android.domain.model.TabState
+import com.autopilot.android.domain.model.proxy.ProxyConfiguration
 import com.autopilot.android.domain.model.proxy.ProxyHealthStatus
+import com.autopilot.android.domain.model.proxy.ProxyProtocol
 import com.autopilot.android.domain.validation.IntervalCalculator
 import com.autopilot.android.domain.validation.UrlValidator
 import com.autopilot.android.feature.diagnostics.execution.ExecutionErrorCategory
@@ -18,6 +21,8 @@ import com.autopilot.android.feature.diagnostics.execution.ExecutionEventType
 import com.autopilot.android.feature.scripting.AutoHumanBehaviourScript
 import com.autopilot.android.feature.proxy.ProxyExecutionCoordinator
 import com.autopilot.android.feature.proxy.ProxyHealthChecker
+import com.autopilot.android.feature.proxy.source.GeonodeProxySourceAdapter
+import com.autopilot.android.feature.proxy.source.ProxiflyProxySourceAdapter
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -82,6 +87,28 @@ class AutomationCoordinator(
                 errorMessage = "Tab $tabIndex error: $description on $failingUrl"
             )
             updateTabStates()
+
+            // If active proxy causes connection or timeout errors, auto-rotate to another healthy proxy
+            val activeProxy = proxyExecutionCoordinator?.activeProxy?.value
+            val isProxyRelatedError = errorCode == -8 /* ERROR_TIMEOUT */ ||
+                errorCode == -6 /* ERROR_CONNECT */ ||
+                errorCode == -15 /* ERROR_PROXY_AUTHENTICATION_FAILED */ ||
+                errorCode == -2 /* ERROR_HOST_LOOKUP */ ||
+                description.contains("ERR_PROXY", ignoreCase = true) ||
+                description.contains("ERR_TUNNEL", ignoreCase = true) ||
+                description.contains("timed out", ignoreCase = true)
+
+            if (activeProxy != null && isProxyRelatedError && _engineState.value.status == ProfileStatus.RUNNING) {
+                scope.launch {
+                    proxyRepository?.updateHealthStatus(
+                        activeProxy.id,
+                        ProxyHealthStatus.UNHEALTHY,
+                        null,
+                        "WebView failure $errorCode: $description"
+                    )
+                    rotateToNextHealthyProxy()
+                }
+            }
         },
         activeProxyProvider = {
             proxyExecutionCoordinator?.activeProxy?.value
@@ -201,11 +228,11 @@ class AutomationCoordinator(
                         message = "Proxy routing rules acquired and verified"
                     )
                 } else if (profile.enableFreeProxy) {
-                    val freeProxy = proxyRepository?.getAllProxies()?.firstOrNull { it.enabled }
+                    val freeProxy = obtainHealthyFreeProxy()
                     if (freeProxy != null) {
                         val proxyDesc = "${freeProxy.name} (${freeProxy.protocol.displayName} ${freeProxy.host}:${freeProxy.port})"
                         _engineState.value = _engineState.value.copy(
-                            statusMessage = "Applying free proxy: $proxyDesc...",
+                            statusMessage = "Connected to free proxy: $proxyDesc",
                             currentProxyName = proxyDesc
                         )
                         proxyExecutionCoordinator?.acquireAndApply(freeProxy)
@@ -217,6 +244,9 @@ class AutomationCoordinator(
                             message = "Selected free proxy: $proxyDesc"
                         )
                     } else {
+                        _engineState.value = _engineState.value.copy(
+                            statusMessage = "No working free proxy found, running with direct connection..."
+                        )
                         proxyExecutionCoordinator?.acquireAndApply(null)
                         proxyLocked = true
                     }
@@ -347,11 +377,17 @@ class AutomationCoordinator(
                             proxyLocked = true
                         }
                     } else if (proxyProfile.enableFreeProxy) {
-                        val freeProxy = proxyRepository?.getAllProxies()?.firstOrNull { it.enabled }
+                        val freeProxy = obtainHealthyFreeProxy()
                         if (freeProxy != null) {
-                            val desc = "${freeProxy.name} (${freeProxy.host}:${freeProxy.port})"
-                            _engineState.value = _engineState.value.copy(currentProxyName = desc)
+                            val desc = "${freeProxy.name} (${freeProxy.protocol.displayName} ${freeProxy.host}:${freeProxy.port})"
+                            _engineState.value = _engineState.value.copy(
+                                statusMessage = "Connected to free proxy: $desc",
+                                currentProxyName = desc
+                            )
                             proxyExecutionCoordinator?.acquireAndApply(freeProxy)
+                            proxyLocked = true
+                        } else {
+                            proxyExecutionCoordinator?.acquireAndApply(null)
                             proxyLocked = true
                         }
                     }
@@ -493,11 +529,126 @@ class AutomationCoordinator(
     }
 
     /**
+     * Resolves and verifies a healthy free proxy.
+     * If the local database has no proxies, automatically imports fresh ones from public sources.
+     * Verifies proxy health to prevent hanging on dead or broken proxies.
+     */
+    suspend fun obtainHealthyFreeProxy(): ProxyConfiguration? {
+        val repo = proxyRepository ?: return null
+        val checker = proxyHealthChecker
+
+        var allProxies = repo.getAllProxies().filter { it.enabled }
+
+        // If repository is empty or only has dead proxies, fetch fresh free proxies
+        if (allProxies.isEmpty() || allProxies.all { it.lastHealthStatus == ProxyHealthStatus.UNHEALTHY || it.lastHealthStatus == ProxyHealthStatus.TIMEOUT }) {
+            _engineState.value = _engineState.value.copy(
+                statusMessage = "Fetching fresh free proxies from network..."
+            )
+            try {
+                val proxifly = ProxiflyProxySourceAdapter()
+                val res = proxifly.fetchProxies(protocolFilter = ProxyProtocol.HTTP)
+                if (res.success && res.validProxies.isNotEmpty()) {
+                    repo.saveProxies(res.validProxies.take(30))
+                    allProxies = repo.getAllProxies().filter { it.enabled }
+                }
+            } catch (e: Exception) {
+                try {
+                    val geonode = GeonodeProxySourceAdapter()
+                    val geoRes = geonode.fetchProxies()
+                    if (geoRes.success && geoRes.validProxies.isNotEmpty()) {
+                        repo.saveProxies(geoRes.validProxies.take(30))
+                        allProxies = repo.getAllProxies().filter { it.enabled }
+                    }
+                } catch (e2: Exception) {
+                    // Ignore fallback failure
+                }
+            }
+            if (allProxies.isEmpty()) {
+                repo.saveProxies(DefaultProxySeedData.getSeedProxies())
+                allProxies = repo.getAllProxies().filter { it.enabled }
+            }
+        }
+
+        if (allProxies.isEmpty()) return null
+
+        val prefs = context.getSharedPreferences("proxy_settings", Context.MODE_PRIVATE)
+        val preferredRegion = prefs.getString("preferred_proxy_region", "AUTO") ?: "AUTO"
+
+        // Sort: preferred region first, verified HEALTHY first (by lowest latency), then UNTESTED, then others
+        val sorted = allProxies.sortedWith(
+            compareBy<ProxyConfiguration> {
+                if (preferredRegion != "AUTO") {
+                    val matches = if (preferredRegion == "UNKNOWN") it.region.isNullOrBlank()
+                    else it.region?.equals(preferredRegion, ignoreCase = true) == true
+                    if (matches) 0 else 1
+                } else 0
+            }.thenBy {
+                when (it.lastHealthStatus) {
+                    ProxyHealthStatus.HEALTHY -> 0
+                    ProxyHealthStatus.UNTESTED -> 1
+                    else -> 2
+                }
+            }.thenBy { it.lastLatencyMs ?: Long.MAX_VALUE }
+        )
+
+        // Probe up to 6 candidates to guarantee the proxy can route HTTP traffic
+        for (candidate in sorted.take(6)) {
+            if (candidate.lastHealthStatus == ProxyHealthStatus.HEALTHY) {
+                return candidate
+            }
+            if (checker != null) {
+                _engineState.value = _engineState.value.copy(
+                    statusMessage = "Testing free proxy: ${candidate.host}:${candidate.port}..."
+                )
+                try {
+                    val testResult = withTimeoutOrNull(4000L) {
+                        checker.checkHealth(candidate)
+                    }
+                    if (testResult != null) {
+                        repo.updateHealthStatus(candidate.id, testResult.status, testResult.latencyMs, testResult.errorMessage)
+                        if (testResult.status == ProxyHealthStatus.HEALTHY) {
+                            return candidate.copy(lastHealthStatus = ProxyHealthStatus.HEALTHY, lastLatencyMs = testResult.latencyMs)
+                        }
+                    } else {
+                        repo.updateHealthStatus(candidate.id, ProxyHealthStatus.TIMEOUT, 4000L, "Health probe timed out")
+                    }
+                } catch (e: Exception) {
+                    repo.updateHealthStatus(candidate.id, ProxyHealthStatus.UNHEALTHY, null, e.message)
+                }
+            } else {
+                return candidate
+            }
+        }
+
+        // Return best available non-unhealthy candidate or first
+        return sorted.firstOrNull { it.lastHealthStatus != ProxyHealthStatus.UNHEALTHY } ?: sorted.firstOrNull()
+    }
+
+    /**
      * Rotates to the next healthy, verified proxy in the database.
      */
     suspend fun rotateToNextHealthyProxy(): Boolean {
         val repo = proxyRepository ?: return false
-        val allProxies = repo.getAllProxies().filter { it.enabled }
+        var allProxies = repo.getAllProxies().filter { it.enabled }
+
+        // If proxies are empty or all marked unhealthy, try to fetch fresh proxies
+        if (allProxies.isEmpty() || allProxies.all { it.lastHealthStatus == ProxyHealthStatus.UNHEALTHY || it.lastHealthStatus == ProxyHealthStatus.TIMEOUT }) {
+            try {
+                val proxifly = ProxiflyProxySourceAdapter()
+                val res = proxifly.fetchProxies(protocolFilter = ProxyProtocol.HTTP)
+                if (res.success && res.validProxies.isNotEmpty()) {
+                    repo.saveProxies(res.validProxies.take(30))
+                    allProxies = repo.getAllProxies().filter { it.enabled }
+                }
+            } catch (e: Exception) {
+                // Ignore fallback
+            }
+            if (allProxies.isEmpty()) {
+                repo.saveProxies(DefaultProxySeedData.getSeedProxies())
+                allProxies = repo.getAllProxies().filter { it.enabled }
+            }
+        }
+
         if (allProxies.isEmpty()) return false
 
         val currentActive = proxyExecutionCoordinator?.activeProxy?.value
@@ -513,9 +664,15 @@ class AutomationCoordinator(
                     val result = withTimeoutOrNull(5000L) {
                         proxyHealthChecker.checkHealth(candidate)
                     }
-                    result?.status == ProxyHealthStatus.HEALTHY
+                    if (result != null) {
+                        repo.updateHealthStatus(candidate.id, result.status, result.latencyMs, result.errorMessage)
+                        result.status == ProxyHealthStatus.HEALTHY
+                    } else {
+                        repo.updateHealthStatus(candidate.id, ProxyHealthStatus.TIMEOUT, 5000L, "Health check timed out")
+                        false
+                    }
                 } catch (e: Exception) {
-                    true
+                    false
                 }
             } else {
                 true

@@ -1,5 +1,6 @@
 package com.autopilot.android.ui.screen
 
+import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -19,9 +20,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.autopilot.android.data.local.DefaultProxySeedData
 import com.autopilot.android.data.repository.ProxyRepository
 import com.autopilot.android.domain.model.proxy.ProxyHealthStatus
 import com.autopilot.android.feature.proxy.ProxyHealthChecker
@@ -44,34 +47,43 @@ fun ProxyRegionScreen(
     onNavigateBack: () -> Unit,
     onNavigateToProxyManager: () -> Unit
 ) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("proxy_settings", Context.MODE_PRIVATE) }
     val coroutineScope = rememberCoroutineScope()
     val dbProxies by proxyRepository.getAllProxiesFlow().collectAsState(initial = emptyList())
     var isRefreshing by remember { mutableStateOf(false) }
 
-    // Selected region: "AUTO" by default as shown in the screenshot
-    var selectedRegionCode by remember { mutableStateOf("AUTO") }
+    // Seed default proxy pool if database is empty or has 0 healthy proxies
+    LaunchedEffect(Unit) {
+        val all = proxyRepository.getAllProxies()
+        if (all.isEmpty() || all.none { it.lastHealthStatus == ProxyHealthStatus.HEALTHY }) {
+            proxyRepository.saveProxies(DefaultProxySeedData.getSeedProxies())
+        }
+    }
 
-    // Build the region list matching the user reference screenshot
+    // Selected region: persisted in SharedPreferences, "AUTO" by default
+    var selectedRegionCode by remember {
+        mutableStateOf(prefs.getString("preferred_proxy_region", "AUTO") ?: "AUTO")
+    }
+
+    // Build the region list dynamically from database
     val (totalProxies, healthyProxies, regionItems) = remember(dbProxies) {
         val dbHealthy = dbProxies.count { it.lastHealthStatus == ProxyHealthStatus.HEALTHY }
         val dbTotal = dbProxies.size
-
-        val displayTotal = if (dbTotal > 60) 60 else if (dbTotal > 0) dbTotal else 60
-        val displayHealthy = if (dbHealthy > 0 && dbHealthy <= 60) dbHealthy else 22
 
         val autoItem = RegionItem(
             code = "AUTO",
             displayName = "Any Region (Auto)",
             flagEmoji = "",
-            healthyCount = displayHealthy,
-            totalCount = displayTotal
+            healthyCount = dbHealthy,
+            totalCount = dbTotal
         )
 
-        // Preferred reference order from the screenshot
+        // Preferred reference order
         val referenceRegions = listOf(
             Triple("ID", "Indonesia", "🇮🇩"),
             Triple("US", "United States", "🇺🇸"),
-            Triple("UNKNOWN", "", ""),
+            Triple("UNKNOWN", "Global / Unknown", "🌐"),
             Triple("RU", "Russia", "🇷🇺"),
             Triple("PH", "Philippines", "🇵🇭")
         )
@@ -79,18 +91,13 @@ fun ProxyRegionScreen(
         val list = mutableListOf(autoItem)
 
         for ((code, name, flag) in referenceRegions) {
-            val dbCount = dbProxies.count {
+            val count = dbProxies.count {
                 if (code == "UNKNOWN") it.region.isNullOrBlank() && it.lastHealthStatus == ProxyHealthStatus.HEALTHY
                 else it.region?.equals(code, ignoreCase = true) == true && it.lastHealthStatus == ProxyHealthStatus.HEALTHY
             }
-
-            val count = if (dbCount > 0) dbCount else when (code) {
-                "ID" -> 5
-                "US" -> 4
-                "UNKNOWN" -> 3
-                "RU" -> 2
-                "PH" -> 1
-                else -> 0
+            val totalForRegion = dbProxies.count {
+                if (code == "UNKNOWN") it.region.isNullOrBlank()
+                else it.region?.equals(code, ignoreCase = true) == true
             }
 
             list.add(
@@ -99,7 +106,7 @@ fun ProxyRegionScreen(
                     displayName = name,
                     flagEmoji = flag,
                     healthyCount = count,
-                    totalCount = count * 3
+                    totalCount = totalForRegion
                 )
             )
         }
@@ -109,22 +116,22 @@ fun ProxyRegionScreen(
         dbProxies.mapNotNull { it.region?.trim()?.uppercase() }
             .filter { it.isNotBlank() && !existingCodes.contains(it) }
             .distinct()
+            .sorted()
             .forEach { extraCode ->
                 val count = dbProxies.count { it.region?.equals(extraCode, ignoreCase = true) == true && it.lastHealthStatus == ProxyHealthStatus.HEALTHY }
-                if (count > 0) {
-                    list.add(
-                        RegionItem(
-                            code = extraCode,
-                            displayName = getCountryName(extraCode),
-                            flagEmoji = getCountryFlag(extraCode),
-                            healthyCount = count,
-                            totalCount = count * 2
-                        )
+                val totalForRegion = dbProxies.count { it.region?.equals(extraCode, ignoreCase = true) == true }
+                list.add(
+                    RegionItem(
+                        code = extraCode,
+                        displayName = getCountryName(extraCode),
+                        flagEmoji = getCountryFlag(extraCode),
+                        healthyCount = count,
+                        totalCount = totalForRegion
                     )
-                }
+                )
             }
 
-        Triple(displayTotal, displayHealthy, list)
+        Triple(dbTotal, dbHealthy, list)
     }
 
     Scaffold(
@@ -152,20 +159,32 @@ fun ProxyRegionScreen(
                         onClick = {
                             coroutineScope.launch {
                                 isRefreshing = true
-                                val toTest = dbProxies.take(15)
-                                for (p in toTest) {
-                                    val res = healthChecker.checkHealth(p)
-                                    proxyRepository.updateHealthStatus(p.id, res.status, res.latencyMs, res.errorMessage)
+                                if (dbProxies.isEmpty()) {
+                                    proxyRepository.saveProxies(DefaultProxySeedData.getSeedProxies())
+                                } else {
+                                    val toTest = dbProxies.filter { it.enabled }.take(15)
+                                    for (p in toTest) {
+                                        val res = healthChecker.checkHealth(p)
+                                        proxyRepository.updateHealthStatus(p.id, res.status, res.latencyMs, res.errorMessage)
+                                    }
                                 }
                                 isRefreshing = false
                             }
                         }
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.Refresh,
-                            contentDescription = "Refresh",
-                            tint = Color.Black
-                        )
+                        if (isRefreshing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = Color.Black
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Filled.Refresh,
+                                contentDescription = "Refresh",
+                                tint = Color.Black
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
@@ -184,7 +203,9 @@ fun ProxyRegionScreen(
             item {
                 Spacer(modifier = Modifier.height(4.dp))
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToProxyManager() },
                     shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White),
                     border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
@@ -251,7 +272,10 @@ fun ProxyRegionScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(74.dp)
-                        .clickable { selectedRegionCode = item.code },
+                        .clickable {
+                            selectedRegionCode = item.code
+                            prefs.edit().putString("preferred_proxy_region", item.code).apply()
+                        },
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White),
                     border = if (isSelected) {

@@ -105,9 +105,15 @@ class ProxyHealthChecker(
             })
         }
 
+        val effectiveProbeUrl = if (proxy.protocol == ProxyProtocol.HTTP && probeUrl.startsWith("https://", ignoreCase = true)) {
+            "http://connectivitycheck.gstatic.com/generate_204"
+        } else {
+            probeUrl
+        }
+
         val client = clientBuilder.build()
         val request = Request.Builder()
-            .url(probeUrl)
+            .url(effectiveProbeUrl)
             .header("User-Agent", "AutoPilot/1.0.0 (Android; HealthCheck)")
             .build()
 
@@ -281,27 +287,33 @@ class ProxyHealthChecker(
     }
 
     private fun fallbackSocketProbe(proxy: ProxyConfiguration, startTime: Long, primaryException: Exception): ProxyTestResult {
-        return try {
+        val elapsed = System.currentTimeMillis() - startTime
+        val isTimeout = primaryException is SocketTimeoutException ||
+            primaryException.message?.contains("timed out", ignoreCase = true) == true
+
+        // Check if raw TCP port responds, to provide accurate diagnostic error message
+        val isTcpPortOpen = try {
             Socket().use { socket ->
-                socket.connect(InetSocketAddress(proxy.host, proxy.port), connectTimeoutMs.toInt())
-                val elapsed = System.currentTimeMillis() - startTime
-                ProxyTestResult(
-                    proxyId = proxy.id,
-                    status = ProxyHealthStatus.HEALTHY,
-                    latencyMs = elapsed,
-                    timestamp = System.currentTimeMillis(),
-                    errorMessage = "HTTP probe failed (${primaryException.message}), but TCP port is reachable."
-                )
+                socket.connect(InetSocketAddress(proxy.host, proxy.port), connectTimeoutMs.toInt().coerceAtMost(3000))
+                true
             }
         } catch (e: Exception) {
-            val elapsed = System.currentTimeMillis() - startTime
-            ProxyTestResult(
-                proxyId = proxy.id,
-                status = ProxyHealthStatus.UNHEALTHY,
-                latencyMs = elapsed,
-                timestamp = System.currentTimeMillis(),
-                errorMessage = "Probe failed: ${primaryException.message}"
-            )
+            false
         }
+
+        val status = if (isTimeout) ProxyHealthStatus.TIMEOUT else ProxyHealthStatus.UNHEALTHY
+        val errorDesc = if (isTcpPortOpen) {
+            "Proxy TCP port is open, but HTTP probe failed: ${primaryException.message}"
+        } else {
+            "Proxy unreachable: ${primaryException.message}"
+        }
+
+        return ProxyTestResult(
+            proxyId = proxy.id,
+            status = status,
+            latencyMs = elapsed,
+            timestamp = System.currentTimeMillis(),
+            errorMessage = errorDesc
+        )
     }
 }

@@ -596,18 +596,6 @@ fun CreateAutomationScreen(
 
                     // Enable Free Proxy
                     ToggleRow(
-                        title = "Device Info Spoofing (Root)",
-                        subtitle = "Alters system build props and hardware markers. Requires Magisk root privileges.",
-                        icon = Icons.Default.PermDeviceInformation,
-                        checked = enableSpoofing,
-                        onCheckedChange = { enableSpoofing = it },
-                        badge = "ROOT"
-                    )
-
-                    HorizontalDivider(color = Color(0xFFF1F5F9))
-
-                    // Enable Free Proxy
-                    ToggleRow(
                         title = "Enable Free Proxy",
                         subtitle = "Routes browser network traffic through rotating public proxy endpoints.",
                         icon = Icons.Default.VpnLock,

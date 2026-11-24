@@ -23,6 +23,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.autopilot.android.core.system.RootChecker
+import com.autopilot.android.feature.update.AppUpdatesSection
+import com.autopilot.android.feature.update.UpdateManager
 import kotlinx.coroutines.launch
 
 @Composable
@@ -32,7 +34,8 @@ fun ProfileScreen(
     onNavigateToProxies: () -> Unit,
     onNavigateToDiagnostics: () -> Unit,
     onNavigateToBackup: () -> Unit,
-    onNavigateToRecovery: () -> Unit
+    onNavigateToRecovery: () -> Unit,
+    updateManager: UpdateManager? = null
 ) {
     val coroutineScope = rememberCoroutineScope()
     var isRootGranted by remember { mutableStateOf(false) }
@@ -279,6 +282,20 @@ fun ProfileScreen(
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+
+        // --- 4c. In-App Updates ---
+        if (updateManager != null) {
+            val updateState by updateManager.state.collectAsState()
+
+            AppUpdatesSection(
+                state = updateState,
+                onCheckForUpdates = { updateManager.checkForUpdates(isManual = true) },
+                onViewUpdateDialog = { updateManager.showUpdateDialog() },
+                onInstallUpdate = { updateManager.installUpdate() }
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
 
         // --- 5. App Information ---
         Card(

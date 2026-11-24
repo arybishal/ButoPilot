@@ -106,6 +106,7 @@ fun AutoPilotRobotLogo(modifier: Modifier = Modifier, color: Color = Color.Black
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HomeScreen(
     profileRepository: ProfileRepository,
@@ -493,19 +494,35 @@ fun HomeScreen(
                     color = Color(0xFF0F172A)
                 )
                 if (engineState.status != ProfileStatus.IDLE) {
+                    val isEnginePaused = engineState.status == ProfileStatus.PAUSED
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFFDCFCE7))
+                            .background(if (isEnginePaused) Color(0xFFFEF3C7) else Color(0xFFDCFCE7))
                             .padding(horizontal = 8.dp, vertical = 2.dp)
                     ) {
                         Text(
-                            text = "RUNNING",
+                            text = engineState.status.name,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = Color(0xFF15803D)
+                            color = if (isEnginePaused) Color(0xFFB45309) else Color(0xFF15803D)
                         )
                     }
+                }
+            }
+
+            if (engineState.status != ProfileStatus.IDLE) {
+                TextButton(
+                    onClick = { onNavigateToMonitor() },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Text(
+                        text = "Full Monitor →",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF2563EB)
+                    )
                 }
             }
         }
@@ -514,13 +531,16 @@ fun HomeScreen(
 
         if (engineState.status != ProfileStatus.IDLE && engineState.profile != null) {
             val active = engineState.profile!!
+            val isPaused = engineState.status == ProfileStatus.PAUSED
+            val elapsedMinutes = engineState.elapsedSeconds / 60
+            val elapsedSecs = engineState.elapsedSeconds % 60
+            val elapsedFormatted = String.format("%02d:%02d", elapsedMinutes, elapsedSecs)
+
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onNavigateToMonitor() },
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = Color.White),
-                border = BorderStroke(1.5.dp, Color(0xFF86EFAC)),
+                border = BorderStroke(1.5.dp, if (isPaused) Color(0xFFFDE68A) else Color(0xFF86EFAC)),
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
                 Column(
@@ -528,6 +548,7 @@ fun HomeScreen(
                         .fillMaxWidth()
                         .padding(16.dp)
                 ) {
+                    // Header Row: Status pulse, profile name, and quick control buttons
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -538,13 +559,26 @@ fun HomeScreen(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier.weight(1f)
                         ) {
+                            // Pulsing / glowing live indicator dot
                             Box(
                                 modifier = Modifier
-                                    .size(12.dp)
+                                    .size(14.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xFF22C55E))
-                            )
-                            Column {
+                                    .background(
+                                        if (isPaused) Color(0xFFF59E0B).copy(alpha = 0.25f)
+                                        else Color(0xFF22C55E).copy(alpha = 0.25f)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isPaused) Color(0xFFD97706) else Color(0xFF16A34A))
+                                )
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = active.name,
                                     fontSize = 16.sp,
@@ -553,50 +587,173 @@ fun HomeScreen(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                                val cleanUrl = active.urls.firstOrNull()
+                                    ?.replace(Regex("^https?://(www\\.)?"), "")
+                                    ?.trimEnd('/') ?: "No target URL"
                                 Text(
-                                    text = "Status: ${engineState.status.name}",
+                                    text = cleanUrl,
                                     fontSize = 12.sp,
-                                    color = Color(0xFF16A34A),
-                                    fontWeight = FontWeight.Medium
+                                    color = Color(0xFF64748B),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
 
-                        Button(
-                            onClick = { onNavigateToMonitor() },
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = AppColors.Primary,
-                                contentColor = AppColors.OnPrimary
-                            ),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                            modifier = Modifier.height(36.dp)
+                        // Compact Quick Control Buttons (Pause/Resume, Stop, Monitor)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            // Pause / Resume
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isPaused) Color(0xFFDCFCE7) else Color(0xFFFEF3C7))
+                                    .clickable {
+                                        if (isPaused) coordinator.resume() else coordinator.pause()
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                                    contentDescription = if (isPaused) "Resume" else "Pause",
+                                    tint = if (isPaused) Color(0xFF15803D) else Color(0xFFB45309),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+
+                            // Stop
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFFFEE2E2))
+                                    .clickable { coordinator.stop() },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Stop,
+                                    contentDescription = "Stop",
+                                    tint = Color(0xFFDC2626),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+
+                            // Monitor button
+                            Button(
+                                onClick = { onNavigateToMonitor() },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = AppColors.Primary,
+                                    contentColor = AppColors.OnPrimary
+                                ),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(32.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Visibility,
                                     contentDescription = "Monitor",
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(13.dp)
                                 )
-                                Text("Monitor", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("Monitor", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                    // Active badges row
+                    // 4-Column Live Metric Tiles Strip
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFFF8FAFC))
+                            .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
+                            .padding(vertical = 10.dp, horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        HomeTagBadge(label = "${engineState.totalTabs} Active Tab(s)", bg = Color(0xFFF1F5F9), fg = Color(0xFF334155))
-                        HomeTagBadge(label = active.executionMode.displayName, bg = Color(0xFFEEF2FF), fg = Color(0xFF4338CA))
+                        ActiveEngineMetricItem(
+                            label = "Elapsed",
+                            value = elapsedFormatted,
+                            color = Color(0xFF0F172A)
+                        )
+                        Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color(0xFFE2E8F0)))
+                        ActiveEngineMetricItem(
+                            label = "Tabs",
+                            value = "${engineState.totalTabs}",
+                            color = Color(0xFF2563EB)
+                        )
+                        Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color(0xFFE2E8F0)))
+                        ActiveEngineMetricItem(
+                            label = "Actions",
+                            value = "${engineState.totalActions}",
+                            color = Color(0xFF16A34A)
+                        )
+                        Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color(0xFFE2E8F0)))
+                        ActiveEngineMetricItem(
+                            label = "Memory",
+                            value = if (engineState.memoryMb > 0) "${engineState.memoryMb}M" else "--",
+                            color = Color(0xFF7C3AED)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Live Status ticker message
+                    if (engineState.statusMessage.isNotBlank()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFFF1F5F9))
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = null,
+                                tint = Color(0xFF64748B),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = engineState.statusMessage,
+                                fontSize = 11.sp,
+                                color = Color(0xFF475569),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+
+                    // Feature / Configuration Badges in FlowRow (Guarantees no awkward text breaking)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        HomeTagBadge(
+                            label = "${engineState.totalTabs} Active Tab(s)",
+                            bg = Color(0xFFF1F5F9),
+                            fg = Color(0xFF334155)
+                        )
+                        HomeTagBadge(
+                            label = active.executionMode.displayName,
+                            bg = Color(0xFFEEF2FF),
+                            fg = Color(0xFF4338CA)
+                        )
                         if (active.enableSpoofing) {
-                            HomeTagBadge(label = "Spoofing ON", bg = Color(0xFFFEF3C7), fg = Color(0xFF92400E))
+                            HomeTagBadge(
+                                label = "Spoofing Active",
+                                bg = Color(0xFFFEF3C7),
+                                fg = Color(0xFF92400E)
+                            )
                         }
                         if (engineState.isMultiRun) {
                             HomeTagBadge(
@@ -608,10 +765,17 @@ fun HomeScreen(
                         if (engineState.currentProxyName != null) {
                             val mins = engineState.nextProxyRotationSeconds / 60
                             val secs = engineState.nextProxyRotationSeconds % 60
+                            val countdown = String.format("%d:%02d", mins, secs)
                             HomeTagBadge(
-                                label = "10m Proxy: ${mins}:${secs.toString().padStart(2, '0')}",
+                                label = "10m Proxy: $countdown",
                                 bg = Color(0xFFEFF6FF),
                                 fg = Color(0xFF1E40AF)
+                            )
+                        } else if (active.enableFreeProxy) {
+                            HomeTagBadge(
+                                label = "Free Proxy",
+                                bg = Color(0xFFDCFCE7),
+                                fg = Color(0xFF15803D)
                             )
                         }
                     }
@@ -1051,23 +1215,38 @@ fun HomeScreen(
                 }
             }
         } else {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                profiles.take(3).forEach { profile ->
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                profiles.take(5).forEach { profile ->
+                    val isRunning = (engineState.status == ProfileStatus.RUNNING &&
+                        (engineState.profile?.id == profile.id || engineState.activeProfiles.any { it.id == profile.id }))
+                    val firstUrl = profile.urls.firstOrNull() ?: ""
+                    val cleanUrl = if (firstUrl.isNotBlank()) {
+                        firstUrl.replace(Regex("^https?://(www\\.)?"), "").trimEnd('/')
+                    } else {
+                        "No target URL configured"
+                    }
+
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onNavigateToEditor(profile.id) },
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isRunning) Color(0xFFFEFCE8) else Color.White
+                        ),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isRunning) AppColors.Primary else Color(0xFFE2E8F0)
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = if (isRunning) 2.dp else 1.dp)
                     ) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(14.dp)
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            // Top Row: Profile Name & Action Icons
+                            // Top Row: Leading Icon, Profile Info & Action Buttons
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1087,132 +1266,229 @@ fun HomeScreen(
                                                     selectedProfileIds - profile.id
                                                 }
                                             },
-                                            modifier = Modifier.padding(end = 4.dp)
+                                            modifier = Modifier.padding(end = 6.dp)
                                         )
                                     }
-                                    Text(
-                                        text = profile.name,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF0F172A),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
 
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    IconButton(
-                                        onClick = {
-                                            coroutineScope.launch {
-                                                profileRepository.duplicateProfile(profile.id)
-                                            }
-                                        },
-                                        modifier = Modifier.size(32.dp)
+                                    // Leading icon badge
+                                    Box(
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(if (isRunning) Color(0xFFFEF3C7) else Color(0xFFF1F5F9)),
+                                        contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.ContentCopy,
-                                            contentDescription = "Clone ${profile.name}",
-                                            tint = Color(0xFF2563EB),
-                                            modifier = Modifier.size(16.dp)
+                                            imageVector = if (isRunning) Icons.Default.PlayCircle else Icons.Default.Language,
+                                            contentDescription = null,
+                                            tint = if (isRunning) Color(0xFFD97706) else Color(0xFF475569),
+                                            modifier = Modifier.size(20.dp)
                                         )
                                     }
-                                    IconButton(
-                                        onClick = { onNavigateToEditor(profile.id) },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Edit,
-                                            contentDescription = "Edit ${profile.name}",
-                                            tint = Color(0xFF64748B),
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                    IconButton(
-                                        onClick = { profileToDelete = profile },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Delete,
-                                            contentDescription = "Delete ${profile.name}",
-                                            tint = Color(0xFFEF4444),
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-                            }
 
-                            Spacer(modifier = Modifier.height(8.dp))
+                                    Spacer(modifier = Modifier.width(10.dp))
 
-                            // Badges Row
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    HomeTagBadge(
-                                        label = "${profile.urls.size} URL(s)",
-                                        bg = Color(0xFFF1F5F9),
-                                        fg = Color(0xFF475569)
-                                    )
-                                    HomeTagBadge(
-                                        label = "${profile.tabCount} Tab(s)",
-                                        bg = Color(0xFFF1F5F9),
-                                        fg = Color(0xFF475569)
-                                    )
-                                    HomeTagBadge(
-                                        label = profile.executionMode.displayName,
-                                        bg = Color(0xFFEEF2FF),
-                                        fg = Color(0xFF4338CA)
-                                    )
-                                    if (profile.enableSpoofing) {
-                                        HomeTagBadge(
-                                            label = "Spoof",
-                                            bg = Color(0xFFFEF3C7),
-                                            fg = Color(0xFF92400E)
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = profile.name,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF0F172A),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
-                                    }
-                                    if (profile.enableFreeProxy) {
-                                        HomeTagBadge(
-                                            label = "Proxy",
-                                            bg = Color(0xFFDCFCE7),
-                                            fg = Color(0xFF15803D)
+                                        Spacer(modifier = Modifier.height(1.dp))
+                                        Text(
+                                            text = cleanUrl,
+                                            fontSize = 12.sp,
+                                            color = Color(0xFF64748B),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                 }
 
                                 Spacer(modifier = Modifier.width(8.dp))
 
-                                Button(
-                                    onClick = {
-                                        coordinator.start(profile)
-                                        onNavigateToMonitor()
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = AppColors.Primary,
-                                        contentColor = AppColors.OnPrimary
-                                    ),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                    modifier = Modifier.height(32.dp)
+                                // Action Buttons (Copy, Edit, Delete)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFEFF6FF))
+                                            .clickable {
+                                                coroutineScope.launch {
+                                                    profileRepository.duplicateProfile(profile.id)
+                                                }
+                                            },
+                                        contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.PlayArrow,
-                                            contentDescription = "Run",
-                                            modifier = Modifier.size(14.dp)
+                                            imageVector = Icons.Default.ContentCopy,
+                                            contentDescription = "Clone ${profile.name}",
+                                            tint = Color(0xFF2563EB),
+                                            modifier = Modifier.size(15.dp)
                                         )
-                                        Text("Run", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFF1F5F9))
+                                            .clickable { onNavigateToEditor(profile.id) },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Edit,
+                                            contentDescription = "Edit ${profile.name}",
+                                            tint = Color(0xFF475569),
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFFEF2F2))
+                                            .clickable { profileToDelete = profile },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Delete ${profile.name}",
+                                            tint = Color(0xFFEF4444),
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Middle: Flexible Tags Wrap FlowRow
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                HomeTagBadge(
+                                    label = "${profile.tabCount} Tab${if (profile.tabCount > 1) "s" else ""}",
+                                    bg = Color(0xFFF1F5F9),
+                                    fg = Color(0xFF334155)
+                                )
+                                HomeTagBadge(
+                                    label = profile.executionMode.displayName,
+                                    bg = Color(0xFFEEF2FF),
+                                    fg = Color(0xFF4338CA)
+                                )
+                                if (profile.urls.size > 1) {
+                                    HomeTagBadge(
+                                        label = "+${profile.urls.size - 1} URL${if (profile.urls.size > 2) "s" else ""}",
+                                        bg = Color(0xFFF1F5F9),
+                                        fg = Color(0xFF475569)
+                                    )
+                                }
+                                if (profile.enableSpoofing) {
+                                    HomeTagBadge(
+                                        label = "Spoof ON",
+                                        bg = Color(0xFFFEF3C7),
+                                        fg = Color(0xFF92400E)
+                                    )
+                                }
+                                if (profile.enableFreeProxy) {
+                                    HomeTagBadge(
+                                        label = "Free Proxy",
+                                        bg = Color(0xFFDCFCE7),
+                                        fg = Color(0xFF15803D)
+                                    )
+                                }
+                                if (!profile.proxyId.isNullOrBlank()) {
+                                    HomeTagBadge(
+                                        label = "Custom Proxy",
+                                        bg = Color(0xFFE0E7FF),
+                                        fg = Color(0xFF3730A3)
+                                    )
+                                }
+                            }
+
+                            HorizontalDivider(color = Color(0xFFF1F5F9))
+
+                            // Bottom Footer: Status Indicator & Primary Action Button
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isRunning) Color(0xFF22C55E) else Color(0xFF94A3B8))
+                                    )
+                                    Text(
+                                        text = if (isRunning) "RUNNING" else "READY",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isRunning) Color(0xFF16A34A) else Color(0xFF64748B)
+                                    )
+                                }
+
+                                if (isRunning) {
+                                    OutlinedButton(
+                                        onClick = { onNavigateToMonitor() },
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            contentColor = Color(0xFF1E40AF)
+                                        ),
+                                        border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                        modifier = Modifier.height(32.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Visibility,
+                                                contentDescription = "Monitor",
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Text("Monitor", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = {
+                                            coordinator.start(profile)
+                                            onNavigateToMonitor()
+                                        },
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = AppColors.Primary,
+                                            contentColor = AppColors.OnPrimary
+                                        ),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                                        modifier = Modifier.height(32.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.PlayArrow,
+                                                contentDescription = "Run",
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                            Text("Run", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                             }
@@ -1250,6 +1526,33 @@ private fun HomeMiniStat(
 }
 
 @Composable
+private fun ActiveEngineMetricItem(
+    label: String,
+    value: String,
+    color: Color
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = value,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = color,
+            maxLines = 1
+        )
+        Text(
+            text = label,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color(0xFF64748B),
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
 private fun HomeTagBadge(
     label: String,
     bg: Color,
@@ -1259,13 +1562,15 @@ private fun HomeTagBadge(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
             .background(bg)
-            .padding(horizontal = 7.dp, vertical = 3.dp)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
         Text(
             text = label,
-            fontSize = 10.sp,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            color = fg
+            color = fg,
+            maxLines = 1,
+            softWrap = false
         )
     }
 }

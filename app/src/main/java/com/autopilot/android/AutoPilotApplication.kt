@@ -8,6 +8,7 @@ import com.autopilot.android.core.system.DeviceSpoofManager
 import com.autopilot.android.core.system.SharedPrefsSpoofSnapshotStore
 import com.autopilot.android.core.system.SuShellRunner
 import com.autopilot.android.data.local.AutoPilotDatabase
+import com.autopilot.android.data.local.DefaultProxySeedData
 import com.autopilot.android.data.repository.*
 import com.autopilot.android.domain.model.ProfileStatus
 import com.autopilot.android.engine.AutomationCoordinator
@@ -26,6 +27,7 @@ import com.autopilot.android.feature.scheduling.service.AutomationScheduler
 import com.autopilot.android.feature.scheduling.worker.ScheduleReconciliationWorker
 import com.autopilot.android.feature.traffic.TrafficController
 import com.autopilot.android.feature.traffic.TrafficExecutor
+import com.autopilot.android.feature.update.UpdateManager
 import com.autopilot.android.data.repository.TrafficRepositoryImpl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -97,6 +99,9 @@ class AutoPilotApplication : Application() {
     lateinit var trafficController: TrafficController
         private set
 
+    lateinit var updateManager: UpdateManager
+        private set
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -145,6 +150,7 @@ class AutoPilotApplication : Application() {
 
         automationScheduler = AutomationScheduler(this)
         scheduleNotificationManager = ScheduleNotificationManager(this)
+        updateManager = UpdateManager(this)
 
         createNotificationChannels()
 
@@ -171,6 +177,14 @@ class AutoPilotApplication : Application() {
                 val runningProfiles = profileRepository.getAllProfiles().filter { it.status == ProfileStatus.RUNNING }
                 for (p in runningProfiles) {
                     profileRepository.updateStatus(p.id, ProfileStatus.IDLE)
+                }
+            } catch (e: Exception) {
+                // Ignore during init
+            }
+            try {
+                val all = proxyRepository.getAllProxies()
+                if (all.isEmpty() || all.none { it.lastHealthStatus == com.autopilot.android.domain.model.proxy.ProxyHealthStatus.HEALTHY }) {
+                    proxyRepository.saveProxies(DefaultProxySeedData.getSeedProxies())
                 }
             } catch (e: Exception) {
                 // Ignore during init

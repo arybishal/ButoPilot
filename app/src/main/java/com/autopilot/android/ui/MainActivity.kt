@@ -43,6 +43,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.autopilot.android.AutoPilotApplication
+import com.autopilot.android.feature.update.InstallPermissionDialog
+import com.autopilot.android.feature.update.UpdateDialog
 import com.autopilot.android.ui.screen.*
 import com.autopilot.android.ui.theme.AppColors
 import com.autopilot.android.ui.theme.AutoPilotTheme
@@ -74,10 +76,38 @@ class MainActivity : ComponentActivity() {
         val recoveryManager = app.recoveryManager
         val trafficRepository = app.trafficRepository
         val trafficController = app.trafficController
+        val updateManager = app.updateManager
 
         setContent {
             AutoPilotTheme {
                 val navController = rememberNavController()
+                val updateState by updateManager.state.collectAsState()
+
+                // Automatic background GitHub update check on application startup
+                LaunchedEffect(Unit) {
+                    updateManager.checkForUpdates(isManual = false)
+                }
+
+                // In-App Update Dialog
+                if (updateState.isUpdateDialogVisible && updateState.updateInfo != null) {
+                    UpdateDialog(
+                        updateInfo = updateState.updateInfo!!,
+                        currentVersion = updateState.currentVersion,
+                        downloadProgress = updateState.downloadProgress,
+                        onDownloadAndInstall = { updateManager.startDownload() },
+                        onCancelDownload = { updateManager.cancelDownload() },
+                        onInstallNow = { updateManager.installUpdate(this@MainActivity) },
+                        onDismiss = { updateManager.dismissUpdateDialog(rememberIfLater = true) }
+                    )
+                }
+
+                // Unknown Package Installation Permission Dialog
+                if (updateState.isPermissionDialogVisible) {
+                    InstallPermissionDialog(
+                        onOpenSettings = { updateManager.requestInstallPermission(this@MainActivity) },
+                        onDismiss = { updateManager.dismissPermissionDialog() }
+                    )
+                }
 
                 NavHost(
                     navController = navController,
@@ -165,7 +195,8 @@ class MainActivity : ComponentActivity() {
                                             },
                                             onNavigateToRecovery = {
                                                 navController.navigate("recovery")
-                                            }
+                                            },
+                                            updateManager = updateManager
                                         )
                                     }
                                 }

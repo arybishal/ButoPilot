@@ -339,6 +339,7 @@ interface ProxyRepository {
     suspend fun saveProxy(proxy: ProxyConfiguration)
     suspend fun saveProxies(proxies: List<ProxyConfiguration>)
     suspend fun deleteProxy(id: String)
+    suspend fun deleteProxies(ids: List<String>): Int = 0
     suspend fun deleteUnhealthyProxies(): Int
     suspend fun updateHealthStatus(id: String, status: ProxyHealthStatus, latencyMs: Long?, error: String?)
     suspend fun updateEnabled(id: String, enabled: Boolean)
@@ -388,6 +389,11 @@ class ProxyRepositoryImpl(
 
     override suspend fun deleteProxy(id: String) {
         proxyDao.deleteById(id)
+    }
+
+    override suspend fun deleteProxies(ids: List<String>): Int {
+        if (ids.isEmpty()) return 0
+        return proxyDao.deleteByIds(ids)
     }
 
     override suspend fun deleteUnhealthyProxies(): Int {
