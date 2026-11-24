@@ -973,7 +973,7 @@ class AutomationCoordinator(
         val currentState = webViewManager.getTabState(tabIndex)
         val currentUrl = currentState?.currentUrl ?: ""
 
-        if (!UrlValidator.isDomainAllowed(currentUrl, profile.allowedDomains)) {
+        if (profile.allowedDomains.isNotEmpty() && !UrlValidator.isDomainAllowed(currentUrl, profile.allowedDomains)) {
             _engineState.value = _engineState.value.copy(
                 statusMessage = "Script execution blocked: Domain not in allowed domains list ($currentUrl)"
             )
@@ -982,22 +982,23 @@ class AutomationCoordinator(
         }
 
         _engineState.value = _engineState.value.copy(
-            statusMessage = "Executing sandboxed JavaScript on Tab $tabIndex..."
+            statusMessage = "Executing JavaScript on Tab $tabIndex (${script.length} chars)..."
         )
 
+        val timeoutMs = (profile.timeoutSeconds.coerceAtLeast(60) * 1000L)
         try {
-            withTimeout(5000L) {
+            withTimeout(timeoutMs) {
                 withContext(Dispatchers.Main) {
                     webViewManager.executeJavaScript(tabIndex, script) { result ->
                         _engineState.value = _engineState.value.copy(
-                            statusMessage = "Script result on Tab $tabIndex: ${result?.take(50)}"
+                            statusMessage = "Script result on Tab $tabIndex: ${result?.take(100)}"
                         )
                     }
                 }
             }
         } catch (e: TimeoutCancellationException) {
             _engineState.value = _engineState.value.copy(
-                errorMessage = "Script execution timed out (>5s) on Tab $tabIndex"
+                errorMessage = "Script execution timed out (>${timeoutMs / 1000}s) on Tab $tabIndex"
             )
         }
 

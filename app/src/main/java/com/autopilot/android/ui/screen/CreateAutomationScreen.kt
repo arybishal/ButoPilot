@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -465,7 +466,12 @@ fun CreateAutomationScreen(
                         description = "Executes custom sandboxed user scripts at designated intervals with DOM access.",
                         icon = Icons.Default.Code,
                         isSelected = selectedMode == ExecutionMode.CUSTOM_JAVASCRIPT,
-                        onSelect = { selectedMode = ExecutionMode.CUSTOM_JAVASCRIPT }
+                        onSelect = {
+                            selectedMode = ExecutionMode.CUSTOM_JAVASCRIPT
+                            if (customScript.isBlank()) {
+                                customScript = com.autopilot.android.domain.model.AutomationScripts.AUTOBOT_HUMAN_SCRIPT
+                            }
+                        }
                     )
                 }
 
@@ -474,23 +480,171 @@ fun CreateAutomationScreen(
                     enter = expandVertically() + fadeIn(),
                     exit = shrinkVertically() + fadeOut()
                 ) {
-                    Column(modifier = Modifier.padding(top = 12.dp)) {
-                        Text(
-                            text = "Custom JavaScript Script",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF0F172A)
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
+                    val clipboardManager = LocalClipboardManager.current
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp)
+                    ) {
+                        // Header Strip with Title, Badge & Counter
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Custom JavaScript",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF0F172A)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color(0xFFDCFCE7))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "UNLIMITED",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color(0xFF15803D)
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = if (customScript.isEmpty()) "0 chars" else "${customScript.lines().size}L • ${customScript.length} chars",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF64748B),
+                                maxLines = 1
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Quick Action Toolbar: AutoBot Template, Paste, Clear, Templates
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Primary AutoBot Human Script Loader
+                            Button(
+                                onClick = {
+                                    customScript = com.autopilot.android.domain.model.AutomationScripts.AUTOBOT_HUMAN_SCRIPT
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF10B981),
+                                    contentColor = Color.White
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Icon(Icons.Default.SmartToy, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("AutoBot Script", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            // Quick Paste button
+                            Button(
+                                onClick = {
+                                    val clipText = clipboardManager.getText()?.text
+                                    if (!clipText.isNullOrBlank()) {
+                                        customScript = if (customScript.isBlank()) clipText else customScript + "\n" + clipText
+                                    }
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFFEEF2FF),
+                                    contentColor = Color(0xFF4338CA)
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(13.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Paste Code", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            if (customScript.isNotEmpty()) {
+                                OutlinedButton(
+                                    onClick = { customScript = "" },
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Icon(Icons.Default.Clear, contentDescription = null, modifier = Modifier.size(12.dp), tint = Color(0xFF64748B))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Clear", fontSize = 11.sp, color = Color(0xFF64748B))
+                                }
+                            }
+
+                            // Quick Templates
+                            SuggestionChip(
+                                onClick = {
+                                    val template = """// Auto Scroll & Wait
+window.scrollBy({ top: window.innerHeight * 0.7, behavior: 'smooth' });
+console.log('Scrolled at: ' + new Date().toISOString());"""
+                                    customScript = if (customScript.isBlank()) template else customScript + "\n\n" + template
+                                },
+                                label = { Text("+ Scroll Snippet", fontSize = 10.sp) },
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(30.dp)
+                            )
+
+                            SuggestionChip(
+                                onClick = {
+                                    val template = """// Click First Available Button
+const btn = document.querySelector('button, [role="button"], a.cta');
+if (btn) { btn.click(); console.log('Clicked: ' + btn.innerText); }"""
+                                    customScript = if (customScript.isBlank()) template else customScript + "\n\n" + template
+                                },
+                                label = { Text("+ Click Snippet", fontSize = 10.sp) },
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(30.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Large, Expandable, Multi-line Monospace Code Editor
                         OutlinedTextField(
                             value = customScript,
                             onValueChange = { customScript = it },
-                            placeholder = { Text("document.title;\n// executes in page DOM context") },
+                            placeholder = {
+                                Text(
+                                    "// Enter or paste your JavaScript code here (unlimited length)...\n// Example:\n// const els = document.querySelectorAll('p');\n// console.log('Found ' + els.length + ' paragraphs');",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF94A3B8),
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(120.dp),
+                                .heightIn(min = 180.dp, max = 400.dp),
+                            minLines = 8,
+                            maxLines = 40,
+                            singleLine = false,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Text,
+                                imeAction = ImeAction.Default,
+                                autoCorrect = false
+                            ),
                             shape = RoundedCornerShape(12.dp),
-                            textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
+                            textStyle = LocalTextStyle.current.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                                color = Color(0xFF0F172A),
+                                lineHeight = 18.sp
+                            ),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = Color(0xFF1565C0),
                                 unfocusedBorderColor = Color(0xFFCBD5E1),

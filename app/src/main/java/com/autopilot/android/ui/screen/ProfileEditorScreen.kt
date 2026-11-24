@@ -1,7 +1,9 @@
 package com.autopilot.android.ui.screen
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -9,8 +11,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.autopilot.android.data.repository.ProfileRepository
 import com.autopilot.android.data.repository.ProxyRepository
 import com.autopilot.android.domain.model.AutomationProfile
@@ -261,22 +267,123 @@ fun ProfileEditorScreen(
 
             // Mode 4 JavaScript Sandbox Config
             if (selectedMode == ExecutionMode.CUSTOM_JAVASCRIPT) {
-                OutlinedTextField(
-                    value = customScript,
-                    onValueChange = { customScript = it },
-                    label = { Text("Custom JavaScript Code") },
-                    placeholder = { Text("document.title; // DOM scoped, 5s timeout") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(100.dp)
-                )
-                OutlinedTextField(
-                    value = allowedDomainsText,
-                    onValueChange = { allowedDomainsText = it },
-                    label = { Text("Allowed Domains (comma-separated)") },
-                    placeholder = { Text("example.com, google.com") },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                val clipboardManager = LocalClipboardManager.current
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Custom JavaScript Code",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = if (customScript.isEmpty()) "0 chars" else "${customScript.lines().size}L • ${customScript.length} chars",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Toolbar
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Button(
+                                onClick = {
+                                    customScript = com.autopilot.android.domain.model.AutomationScripts.AUTOBOT_HUMAN_SCRIPT
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF10B981),
+                                    contentColor = Color.White
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Icon(Icons.Default.SmartToy, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("AutoBot Script", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            Button(
+                                onClick = {
+                                    val clip = clipboardManager.getText()?.text
+                                    if (!clip.isNullOrBlank()) {
+                                        customScript = if (customScript.isBlank()) clip else customScript + "\n" + clip
+                                    }
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(13.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Paste", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            if (customScript.isNotEmpty()) {
+                                OutlinedButton(
+                                    onClick = { customScript = "" },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Icon(Icons.Default.Clear, contentDescription = null, modifier = Modifier.size(12.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Clear", fontSize = 11.sp)
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedTextField(
+                            value = customScript,
+                            onValueChange = { customScript = it },
+                            placeholder = {
+                                Text(
+                                    "// Enter or paste your JavaScript code here (unlimited length)...\n// Tap 'AutoBot Script' to load human-like automation code.",
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 160.dp, max = 360.dp),
+                            minLines = 8,
+                            maxLines = 40,
+                            singleLine = false,
+                            textStyle = LocalTextStyle.current.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                                lineHeight = 18.sp
+                            )
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedTextField(
+                            value = allowedDomainsText,
+                            onValueChange = { allowedDomainsText = it },
+                            label = { Text("Allowed Domains (optional, comma-separated)") },
+                            placeholder = { Text("Leave empty to allow all domains") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
             }
 
             Divider()

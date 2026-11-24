@@ -197,7 +197,7 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = "AutoPilot",
+                            text = "ButoPilot",
                             fontSize = 21.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF0F172A)

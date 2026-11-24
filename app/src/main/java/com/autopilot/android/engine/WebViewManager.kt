@@ -308,12 +308,13 @@ class WebViewManager(
      * Executes sandboxed JavaScript with string return callback.
      */
     fun executeJavaScript(tabIndex: Int, script: String, callback: (String?) -> Unit) {
+        val safeScript = com.autopilot.android.domain.model.AutomationScripts.normalizeScript(script)
         mainHandler.post {
             val wv = webViewMap[tabIndex] ?: run {
                 callback(null)
                 return@post
             }
-            wv.evaluateJavascript(script) { result ->
+            wv.evaluateJavascript(safeScript) { result ->
                 callback(result)
             }
         }
