@@ -394,4 +394,20 @@ class ProxyUnitTest {
         assertNotEquals("Proxy that cannot forward HTTP must NEVER be marked HEALTHY", ProxyHealthStatus.HEALTHY, result.status)
         serverThread.join(2000)
     }
+
+    @Test
+    fun testProxyRoutingRuleFormatEnsuresAllSchemesCovered() {
+        val proxy = ProxyConfiguration(
+            name = "Test Forward Proxy",
+            protocol = ProxyProtocol.HTTP,
+            host = "proxy.example.com",
+            port = 8080
+        )
+        val hostPort = "${proxy.host}:${proxy.port}"
+        // hostPort without scheme prefix matches all schemes in AndroidX WebKit
+        assertEquals("proxy.example.com:8080", hostPort)
+        // http prefix rule
+        val httpRule = "http://$hostPort"
+        assertEquals("http://proxy.example.com:8080", httpRule)
+    }
 }

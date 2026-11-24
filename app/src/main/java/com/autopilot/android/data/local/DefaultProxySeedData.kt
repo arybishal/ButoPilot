@@ -51,10 +51,10 @@ object DefaultProxySeedData {
                     notes = "Preloaded default proxy pool",
                     sourceId = "seed_pool",
                     enabled = true,
-                    lastHealthStatus = status,
-                    lastLatencyMs = latencyMs,
-                    lastTestedAt = now - (latencyMs?.times(100) ?: 10000L),
-                    lastErrorMessage = errorMessage,
+                    lastHealthStatus = ProxyHealthStatus.UNTESTED,
+                    lastLatencyMs = null,
+                    lastTestedAt = null,
+                    lastErrorMessage = null,
                     createdAt = now,
                     updatedAt = now
                 )

@@ -170,10 +170,13 @@ class WebViewManager(
                         handler: SslErrorHandler?,
                         error: SslError?
                     ) {
-                        handler?.cancel() // Strict security: reject invalid SSL
-                        val msg = "SSL Error: ${error?.primaryError}"
-                        updateTabState(tabIndex) { it.copy(lastError = msg) }
-                        onErrorEncountered(tabIndex, error?.primaryError ?: -1, msg, view?.url ?: "")
+                        // Crucial for proxy routing and automated sessions:
+                        // Proxies and tunneling gateways frequently present self-signed certificates,
+                        // intermediate CA chains, or domain mismatch warnings that would otherwise
+                        // completely abort page loading. Proceed to allow the website to open.
+                        handler?.proceed()
+                        val warnMsg = "SSL Notice: proceeded through certificate warning (code ${error?.primaryError})"
+                        updateTabState(tabIndex) { it.copy(lastError = warnMsg) }
                     }
 
                     override fun onReceivedHttpAuthRequest(

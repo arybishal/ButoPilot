@@ -183,7 +183,7 @@ class AutoPilotApplication : Application() {
             }
             try {
                 val all = proxyRepository.getAllProxies()
-                if (all.isEmpty() || all.none { it.lastHealthStatus == com.autopilot.android.domain.model.proxy.ProxyHealthStatus.HEALTHY }) {
+                if (all.isEmpty()) {
                     proxyRepository.saveProxies(DefaultProxySeedData.getSeedProxies())
                 }
             } catch (e: Exception) {

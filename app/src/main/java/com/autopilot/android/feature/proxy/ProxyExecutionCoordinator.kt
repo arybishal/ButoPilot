@@ -112,15 +112,37 @@ class ProxyExecutionCoordinator {
             return
         }
 
-        val rule = when (proxy.protocol) {
-            ProxyProtocol.SOCKS5 -> "socks://${proxy.host}:${proxy.port}"
-            ProxyProtocol.HTTP -> "http://${proxy.host}:${proxy.port}"
-            ProxyProtocol.HTTPS -> "https://${proxy.host}:${proxy.port}"
+        val hostPort = "${proxy.host}:${proxy.port}"
+        val builder = ProxyConfig.Builder()
+
+        when (proxy.protocol) {
+            ProxyProtocol.SOCKS5 -> {
+                builder.addProxyRule("socks://$hostPort")
+                builder.addProxyRule("socks5://$hostPort")
+            }
+            ProxyProtocol.HTTPS -> {
+                builder.addProxyRule("https://$hostPort")
+                builder.addProxyRule(hostPort)
+            }
+            ProxyProtocol.HTTP -> {
+                // In AndroidX WebKit / Chromium:
+                // hostPort without scheme prefix matches ALL URL schemes (HTTP and HTTPS).
+                // Adding both hostPort and http://$hostPort ensures universal compatibility across all Android WebView versions.
+                builder.addProxyRule(hostPort)
+                builder.addProxyRule("http://$hostPort")
+            }
         }
 
-        val proxyConfig = ProxyConfig.Builder()
-            .addProxyRule(rule)
-            .build()
+        // Bypass local and loopback addresses
+        builder.addBypassRule("<local>")
+        builder.addBypassRule("localhost")
+        builder.addBypassRule("127.0.0.1")
+
+        // Fall back to direct connection if proxy cannot route or fails,
+        // preventing tabs from freezing on permanent blank screens
+        builder.addDirect()
+
+        val proxyConfig = builder.build()
 
         suspendCancellableCoroutine<Unit> { cont ->
             try {

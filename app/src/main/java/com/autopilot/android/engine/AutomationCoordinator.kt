@@ -74,7 +74,7 @@ class AutomationCoordinator(
     var currentExecutionId: String = UUID.randomUUID().toString()
         private set
 
-    val webViewManager = WebViewManager(
+    val webViewManager: WebViewManager = WebViewManager(
         context = context,
         onProgressUpdate = { tabIndex, progress ->
             updateTabStates()
@@ -106,7 +106,13 @@ class AutomationCoordinator(
                         null,
                         "WebView failure $errorCode: $description"
                     )
-                    rotateToNextHealthyProxy()
+                    val rotated = rotateToNextHealthyProxy()
+                    // Reload tabs immediately so they recover and open the website with updated routing
+                    withContext(Dispatchers.Main) {
+                        for (i in 0 until _engineState.value.totalTabs) {
+                            webViewManager.reloadTab(i)
+                        }
+                    }
                 }
             }
         },
@@ -591,26 +597,36 @@ class AutomationCoordinator(
             }.thenBy { it.lastLatencyMs ?: Long.MAX_VALUE }
         )
 
-        // Probe up to 6 candidates to guarantee the proxy can route HTTP traffic
-        for (candidate in sorted.take(6)) {
-            if (candidate.lastHealthStatus == ProxyHealthStatus.HEALTHY) {
+        val now = System.currentTimeMillis()
+        // Probe candidates to guarantee the proxy can route HTTP traffic cleanly
+        for (candidate in sorted.take(8)) {
+            val isRecentlyHealthy = candidate.lastHealthStatus == ProxyHealthStatus.HEALTHY &&
+                candidate.lastTestedAt != null &&
+                (now - candidate.lastTestedAt) < 180_000L // Verified in last 3 min
+
+            if (isRecentlyHealthy) {
                 return candidate
             }
+
             if (checker != null) {
                 _engineState.value = _engineState.value.copy(
-                    statusMessage = "Testing free proxy: ${candidate.host}:${candidate.port}..."
+                    statusMessage = "Testing free proxy reachability: ${candidate.host}:${candidate.port}..."
                 )
                 try {
-                    val testResult = withTimeoutOrNull(4000L) {
+                    val testResult = withTimeoutOrNull(3500L) {
                         checker.checkHealth(candidate)
                     }
                     if (testResult != null) {
                         repo.updateHealthStatus(candidate.id, testResult.status, testResult.latencyMs, testResult.errorMessage)
                         if (testResult.status == ProxyHealthStatus.HEALTHY) {
-                            return candidate.copy(lastHealthStatus = ProxyHealthStatus.HEALTHY, lastLatencyMs = testResult.latencyMs)
+                            return candidate.copy(
+                                lastHealthStatus = ProxyHealthStatus.HEALTHY,
+                                lastLatencyMs = testResult.latencyMs,
+                                lastTestedAt = System.currentTimeMillis()
+                            )
                         }
                     } else {
-                        repo.updateHealthStatus(candidate.id, ProxyHealthStatus.TIMEOUT, 4000L, "Health probe timed out")
+                        repo.updateHealthStatus(candidate.id, ProxyHealthStatus.TIMEOUT, 3500L, "Health probe timed out")
                     }
                 } catch (e: Exception) {
                     repo.updateHealthStatus(candidate.id, ProxyHealthStatus.UNHEALTHY, null, e.message)
@@ -620,8 +636,8 @@ class AutomationCoordinator(
             }
         }
 
-        // Return best available non-unhealthy candidate or first
-        return sorted.firstOrNull { it.lastHealthStatus != ProxyHealthStatus.UNHEALTHY } ?: sorted.firstOrNull()
+        // Return null if no proxy is verified healthy, allowing safe fallback to direct connection
+        return null
     }
 
     /**
@@ -692,6 +708,12 @@ class AutomationCoordinator(
                     eventType = ExecutionEventType.PROXY_SELECTED,
                     message = "10-Minute Auto-Rotation: Switched to healthy proxy $proxyDesc"
                 )
+                // Reload active tabs so that navigation resumes cleanly on the newly active proxy
+                withContext(Dispatchers.Main) {
+                    for (i in 0 until _engineState.value.totalTabs) {
+                        webViewManager.reloadTab(i)
+                    }
+                }
                 return true
             }
         }
