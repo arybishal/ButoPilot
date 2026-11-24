@@ -1012,8 +1012,17 @@ class AutomationCoordinator(
             withTimeout(timeoutMs) {
                 withContext(Dispatchers.Main) {
                     webViewManager.executeJavaScript(tabIndex, script) { result ->
+                        val clean = result?.trim('"', ' ', '\n', '\r')
+                        val status = when {
+                            clean.isNullOrBlank() || clean == "null" || clean == "undefined" ->
+                                "Script executed successfully on Tab ${tabIndex + 1}"
+                            clean.length > 60 ->
+                                "Tab ${tabIndex + 1}: ${clean.take(60)}..."
+                            else ->
+                                "Tab ${tabIndex + 1}: $clean"
+                        }
                         _engineState.value = _engineState.value.copy(
-                            statusMessage = "Script result on Tab $tabIndex: ${result?.take(100)}"
+                            statusMessage = status
                         )
                     }
                 }

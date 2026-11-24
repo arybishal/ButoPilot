@@ -57,9 +57,12 @@ class WebViewManager(
                     displayZoomControls = false
                     builtInZoomControls = true
                     loadsImagesAutomatically = true
-                    mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                     allowFileAccess = false
                     allowContentAccess = false
+                    javaScriptCanOpenWindowsAutomatically = true
+                    mediaPlaybackRequiresUserGesture = false
+                    cacheMode = WebSettings.LOAD_DEFAULT
 
                     if (!profile.userAgent.isNullOrBlank()) {
                         userAgentString = profile.userAgent
@@ -85,16 +88,28 @@ class WebViewManager(
                 }
 
                 webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                        val url = request?.url?.toString() ?: return false
+                        return !(url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true))
+                    }
+
+                    @Suppress("DEPRECATION")
+                    override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                        val u = url ?: return false
+                        return !(u.startsWith("http://", ignoreCase = true) || u.startsWith("https://", ignoreCase = true))
+                    }
+
                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                         super.onPageStarted(view, url, favicon)
                         navigationTimeoutMap.remove(tabIndex)?.let { mainHandler.removeCallbacks(it) }
 
+                        val timeoutSec = profile.timeoutSeconds.coerceIn(20, 120)
                         val watchdog = Runnable {
                             val wv = webViewMap[tabIndex]
                             val state = tabStateMap[tabIndex]
                             if (wv != null && state?.isNavigating == true) {
                                 wv.stopLoading()
-                                val timeoutMsg = "Navigation timed out after 25s"
+                                val timeoutMsg = "Navigation timed out after ${timeoutSec}s"
                                 updateTabState(tabIndex) {
                                     it.copy(
                                         isNavigating = false,
@@ -106,7 +121,7 @@ class WebViewManager(
                             }
                         }
                         navigationTimeoutMap[tabIndex] = watchdog
-                        mainHandler.postDelayed(watchdog, 25000L)
+                        mainHandler.postDelayed(watchdog, timeoutSec * 1000L)
 
                         updateTabState(tabIndex) {
                             it.copy(
@@ -135,20 +150,45 @@ class WebViewManager(
 
                     override fun onReceivedError(
                         view: WebView?,
+                        request: WebResourceRequest?,
+                        error: WebResourceError?
+                    ) {
+                        super.onReceivedError(view, request, error)
+                        // Only report and act on main frame errors; 3rd party ads/trackers failing must NOT abort the tab
+                        if (request?.isForMainFrame == true) {
+                            navigationTimeoutMap.remove(tabIndex)?.let { mainHandler.removeCallbacks(it) }
+                            val errCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) error?.errorCode ?: -1 else -1
+                            val errDesc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) error?.description?.toString() ?: "Navigation Error ($errCode)" else "Navigation Error ($errCode)"
+                            val failingUrl = request.url?.toString() ?: ""
+                            updateTabState(tabIndex) {
+                                it.copy(
+                                    isNavigating = false,
+                                    lastError = errDesc
+                                )
+                            }
+                            onErrorEncountered(tabIndex, errCode, errDesc, failingUrl)
+                        }
+                    }
+
+                    @Suppress("DEPRECATION")
+                    override fun onReceivedError(
+                        view: WebView?,
                         errorCode: Int,
                         description: String?,
                         failingUrl: String?
                     ) {
                         super.onReceivedError(view, errorCode, description, failingUrl)
-                        navigationTimeoutMap.remove(tabIndex)?.let { mainHandler.removeCallbacks(it) }
-                        val errDesc = description ?: "Navigation Error ($errorCode)"
-                        updateTabState(tabIndex) {
-                            it.copy(
-                                isNavigating = false,
-                                lastError = errDesc
-                            )
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+                            navigationTimeoutMap.remove(tabIndex)?.let { mainHandler.removeCallbacks(it) }
+                            val errDesc = description ?: "Navigation Error ($errorCode)"
+                            updateTabState(tabIndex) {
+                                it.copy(
+                                    isNavigating = false,
+                                    lastError = errDesc
+                                )
+                            }
+                            onErrorEncountered(tabIndex, errorCode, errDesc, failingUrl ?: "")
                         }
-                        onErrorEncountered(tabIndex, errorCode, errDesc, failingUrl ?: "")
                     }
 
                     override fun onReceivedHttpError(
