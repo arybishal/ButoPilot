@@ -3,8 +3,7 @@
 **ButoPilot** is an enterprise-grade, high-concurrency Android automation and web traffic simulation engine built for modern Android runtimes (Android 8.0 to Android 15+ / API 26–35+). It turns any Android device or emulator (e.g., LDPlayer, Nox, physical devices) into a powerful, self-healing automation workstation.
 
 ---
-
-### 🚀 Highlights & Key Capabilities
+### Highlights & Key Capabilities
 
 #### 1. Multi-Tab Concurrency (1 to 200 Concurrent Tabs)
 - Scalable tab manager supporting from 1 up to **200 concurrent tabs**.
@@ -40,8 +39,7 @@
 - Comprehensive diagnostic center, encrypted database backup/restore, and automatic recovery protocols.
 
 ---
-
-### 📦 Included Release Assets
+### Included Release Assets
 
 | Asset Name | Description | Size |
 | :--- | :--- | :--- |
@@ -49,8 +47,7 @@
 | **`ButoPilot-v1.0.0-Debug.apk`** | Debug APK with extended logging and debuggable inspector enabled | ~32 MB |
 
 ---
-
-### 📲 Installation & Requirements
+### Installation & Requirements
 - **OS**: Android 8.0 (Oreo / API 26) or higher, up to Android 15 (Vanilla Ice Cream / API 35).
 - **Emulators**: Supported on LDPlayer 9, BlueStacks, Nox, Genymotion, and Android Studio AVDs.
 - **Root**: Optional (Non-root mode fully supported; root enables transparent iptables proxying and system hosts modifications).

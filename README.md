@@ -12,7 +12,6 @@
 > **ButoPilot** is an enterprise-grade, extensible, high-concurrency Android automation and web traffic platform built for modern Android runtimes (Android 8.0 to Android 15+ / API 26–35+). It features multi-tab browser concurrency (1–200 tabs), multi-automation parallel execution, instant profile cloning, 10-minute healthy proxy auto-rotation, real-browser WebView traffic generator with analytics tracking, hardware fingerprint spoofing, cron scheduling, and root-assisted survival.
 
 ---
-
 ## Table of Contents
 
 1. [Project Overview](#project-overview)
@@ -28,7 +27,6 @@
 11. [License](#license)
 
 ---
-
 ## Project Overview
 
 **AutoPilot** turns an Android device into a reliable, self-healing automation node. Unlike cloud browser runners or desktop scrapers that require heavyweight infrastructure, AutoPilot runs natively on device silicon, leveraging Android's native WebView engine, WorkManager scheduling fabric, and Android background service lifecycle.
@@ -43,7 +41,6 @@ The platform is designed around six foundational pillars:
 6. **Diagnostics & Data Backup**: Live execution telemetry, action-level screenshots, structured timeline inspection, crash reporting, and encrypted Room database export/import for disaster recovery.
 
 ---
-
 ## Features Summary
 
 | Domain | Key Capabilities |
@@ -56,7 +53,6 @@ The platform is designed around six foundational pillars:
 | **Diagnostics & Backup** | • Real-time action log streaming via Kotlin `SharedFlow`<br>• Visual step-by-step screenshot capture and viewer<br>• Execution metrics (success rate, duration, memory footprint)<br>• AES-256 encrypted database backup and restoration |
 
 ---
-
 ## Implementation Status
 
 - **Phase 0 (Architecture & Feasibility):** Complete (15 architectural documents created and approved).
@@ -80,47 +76,46 @@ The platform is designed around six foundational pillars:
 - **Phase 5 (Diagnostics, Backup & Data Recovery):** Next Phase (Awaiting explicit approval).
 
 ---
-
 ## Architecture Overview
 
 AutoPilot is structured according to **Clean Architecture** combined with the **Model-View-ViewModel (MVVM)** pattern and **Unidirectional Data Flow (UDF)**. This guarantees strict boundary separation, testability without Android runtime dependencies, and modular scalability.
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        PRESENTATION LAYER                              │
-│         Jetpack Compose UI  •  Navigation Compose  •  Material 3       │
-│                                   ▲                                    │
-│                         UI State  │  UI Events                         │
-│                                   ▼                                    │
-│                           Viewmodels (StateFlow)                       │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │
+
+                        PRESENTATION LAYER
+         Jetpack Compose UI  •  Navigation Compose  •  Material 3
+
+                         UI State    UI Events
+
+                           Viewmodels (StateFlow)
+
+
                        Executes UseCases / Domain Models
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                           DOMAIN LAYER                                 │
-│  (Pure Kotlin — Zero Android Framework Dependencies for Max Testability)│
-│                                                                        │
-│   UseCases (e.g. ExecuteProfileUseCase, ScheduleTaskUseCase)           │
-│   Domain Models (Profile, Action, Schedule, ProxyConfig, Session)      │
-│   Repository Interfaces (ProfileRepository, ExecutionRepository, etc.) │
-└───────────────────────────────────▲────────────────────────────────────┘
-                                    │
+
+
+                           DOMAIN LAYER
+  (Pure Kotlin — Zero Android Framework Dependencies for Max Testability)
+
+   UseCases (e.g. ExecuteProfileUseCase, ScheduleTaskUseCase)
+   Domain Models (Profile, Action, Schedule, ProxyConfig, Session)
+   Repository Interfaces (ProfileRepository, ExecutionRepository, etc.)
+
+
                        Implements Domain Interfaces
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                            DATA LAYER                                  │
-│                                                                        │
-│   Repository Implementations (ProfileRepositoryImpl, etc.)             │
-│   Mappers (Entity ↔ Domain Model ↔ Network DTO)                       │
-│                                                                        │
-│   ┌───────────────────────┐             ┌─────────────────────────┐    │
-│   │   Local Data Source   │             │   Remote / Engine Layer │    │
-│   │   • Room SQLite DB    │             │   • WebView Pool        │    │
-│   │   • EncryptedDataStore│             │   • OkHttp Proxy Engine │    │
-│   │   • File Storage      │             │   • Root Su Shell       │    │
-│   └───────────────────────┘             └─────────────────────────┘    │
-└────────────────────────────────────────────────────────────────────────┘
+
+
+                            DATA LAYER
+
+   Repository Implementations (ProfileRepositoryImpl, etc.)
+   Mappers (Entity ↔ Domain Model ↔ Network DTO)
+
+
+      Local Data Source                   Remote / Engine Layer
+      • Room SQLite DB                    • WebView Pool
+      • EncryptedDataStore                • OkHttp Proxy Engine
+      • File Storage                      • Root Su Shell
+
+
 ```
 
 ### Unidirectional Data Flow (UDF)
@@ -134,7 +129,6 @@ AutoPilot is structured according to **Clean Architecture** combined with the **
 - **WorkManager**: Background synchronization, scheduled cron triggers, and periodic maintenance tasks executed reliably within battery optimization constraints.
 
 ---
-
 ## Tech Stack
 
 | Layer / Subsystem | Technology | Specification / Role |
@@ -156,7 +150,6 @@ AutoPilot is structured according to **Clean Architecture** combined with the **
 | **Testing** | JUnit 5, MockK, Turbine, Compose UI Test | Unit, domain logic, and instrumented UI automation testing |
 
 ---
-
 ## Prerequisites & Detected Environment
 
 The project has been planned against the current development environment:
@@ -182,7 +175,6 @@ The project has been planned against the current development environment:
 - Virtualization enabled in BIOS/UEFI (Hyper-V / WHPX) for Android Emulator support
 
 ---
-
 ## Setup & Installation
 
 ### 1. Initialize Git Repository
@@ -220,33 +212,32 @@ $env:Path += ";$env:ANDROID_HOME\platform-tools;$env:ANDROID_HOME\cmdline-tools\
 4. Perform an initial Gradle sync.
 
 ---
-
 ## Module Structure
 
 AutoPilot follows a strict feature-driven multi-module layout:
 
 ```
 BAutoPilot/
-├── app/                        # Main entrypoint, Application class, DI root, Navigation host
-│
-├── core/
-│   ├── common/                 # Base interfaces, Kotlin extensions, Coroutine dispatchers, Result monad
-│   ├── database/               # Room DB, Entity definitions, DAOs, SQLite TypeConverters, migrations
-│   ├── network/                # OkHttp setup, SOCKS5 socket factory, SSL/TLS cert pinning, ConnectivityObserver
-│   ├── domain/                 # Pure Kotlin domain models, Repository contracts, business UseCases
-│   └── data/                   # Repository implementations, DataStore preferences, Data mappers
-│
-├── feature/
-│   ├── profiles/               # Profile management UI, Action creator, UserAgent & Cookie manager
-│   ├── automation/             # Execution coordinator, Action runner pipeline, WebView pool, JS engine
-│   ├── scheduler/              # Cron scheduling UI, WorkManager workers, exact AlarmManager dispatchers
-│   ├── proxy/                  # Proxy setup UI, latency tester, rotation policies, local VPN service
-│   ├── diagnostics/            # Real-time log inspector, timeline viewer, screenshot gallery, health checks
-│   ├── settings/               # App preferences, theme switcher, battery whitelist prompts, storage cleanup
-│   └── backup/                 # Encrypted database backup/restore, JSON export/import handlers
-│
-└── integration/
-    └── root/                   # Optional libsu integration, iptables manager, Magisk su privilege auditing
+ app/                        # Main entrypoint, Application class, DI root, Navigation host
+
+ core/
+    common/                 # Base interfaces, Kotlin extensions, Coroutine dispatchers, Result monad
+    database/               # Room DB, Entity definitions, DAOs, SQLite TypeConverters, migrations
+    network/                # OkHttp setup, SOCKS5 socket factory, SSL/TLS cert pinning, ConnectivityObserver
+    domain/                 # Pure Kotlin domain models, Repository contracts, business UseCases
+    data/                   # Repository implementations, DataStore preferences, Data mappers
+
+ feature/
+    profiles/               # Profile management UI, Action creator, UserAgent & Cookie manager
+    automation/             # Execution coordinator, Action runner pipeline, WebView pool, JS engine
+    scheduler/              # Cron scheduling UI, WorkManager workers, exact AlarmManager dispatchers
+    proxy/                  # Proxy setup UI, latency tester, rotation policies, local VPN service
+    diagnostics/            # Real-time log inspector, timeline viewer, screenshot gallery, health checks
+    settings/               # App preferences, theme switcher, battery whitelist prompts, storage cleanup
+    backup/                 # Encrypted database backup/restore, JSON export/import handlers
+
+ integration/
+     root/                   # Optional libsu integration, iptables manager, Magisk su privilege auditing
 ```
 
 ### Module Responsibilities & Dependency Rules
@@ -271,7 +262,6 @@ BAutoPilot/
 > **Architectural Guardrail**: Feature modules must **never** depend directly on other feature modules. Cross-feature navigation is coordinated via deep links or domain-level interfaces defined in `:core:domain`.
 
 ---
-
 ## Build Instructions
 
 ### Basic Build Commands (Gradle Wrapper)
@@ -304,7 +294,6 @@ cd D:\Webapp\BAutoPilot
 - **`release`**: ProGuard/R8 code shrinking and resource obfuscation enabled, logging stripped, strict certificate pinning enforced.
 
 ---
-
 ## Documentation Index
 
 The complete AutoPilot architectural, engineering, and design specifications are organized into **15 standalone markdown documents**:
@@ -328,7 +317,6 @@ The complete AutoPilot architectural, engineering, and design specifications are
 | **15** | **Architecture Decisions (ADRs)** | [docs/DECISIONS.md](file:///D:/Webapp/BAutoPilot/docs/DECISIONS.md) | Architecture Decision Records capturing context, alternatives, trade-offs, and rationale for all foundational architectural choices. |
 
 ---
-
 ## Contributing
 
 We welcome contributions to the AutoPilot platform! To maintain code quality and architectural integrity, please adhere to the following workflow:
@@ -353,7 +341,6 @@ We welcome contributions to the AutoPilot platform! To maintain code quality and
 7. Submit a Pull Request targeting `develop` with a clear description of changes, linked issues, and test evidence.
 
 ---
-
 ## License
 
 ```
@@ -373,5 +360,4 @@ limitations under the License.
 ```
 
 ---
-
 *AutoPilot is maintained under an open architectural specification. For detailed architectural questions, refer to [docs/ARCHITECTURE.md](file:///D:/Webapp/BAutoPilot/docs/ARCHITECTURE.md) or open an issue on the project issue tracker.*
