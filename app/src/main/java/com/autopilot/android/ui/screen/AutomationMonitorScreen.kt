@@ -32,7 +32,12 @@ fun AutomationMonitorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(engineState.profile?.name ?: "Live Monitor") },
+                title = {
+                    Text(
+                        if (engineState.isMultiRun) "Multi-Run (${engineState.activeProfiles.size} Automations)"
+                        else engineState.profile?.name ?: "Live Monitor"
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -101,6 +106,86 @@ fun AutomationMonitorScreen(
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Medium
                 )
+            }
+
+            // 10-Minute Proxy Auto-Rotation & Multi-Run Status Strip
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(modifier = Modifier.padding(10.dp)) {
+                    if (engineState.isMultiRun && engineState.activeProfiles.isNotEmpty()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Default.Layers, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                            Text(
+                                text = "Multi-Run Active (${engineState.activeProfiles.size} Profiles):",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(engineState.activeProfiles) { prof ->
+                                SuggestionChip(
+                                    onClick = {},
+                                    label = { Text("${prof.name} (${prof.tabCount} tabs)", style = MaterialTheme.typography.labelSmall) }
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Public,
+                                contentDescription = "Proxy",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Column {
+                                Text(
+                                    text = engineState.currentProxyName ?: "Direct (No Proxy Active)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1
+                                )
+                                val minutes = engineState.nextProxyRotationSeconds / 60
+                                val seconds = engineState.nextProxyRotationSeconds % 60
+                                Text(
+                                    text = "Auto-rotates healthy proxy in ${minutes}:${seconds.toString().padStart(2, '0')}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                        }
+
+                        TextButton(
+                            onClick = { coordinator.rotateProxyNow() },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Rotate Now", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
             }
 
             // Tab bar (1 to 25 tabs)

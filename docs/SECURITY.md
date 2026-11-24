@@ -614,4 +614,45 @@ The BAutoPilot team welcomes responsible disclosure from security researchers an
 
 ---
 
+## 12. Backup, Diagnostics & Recovery Security Architecture (Phase 5)
+
+Phase 5 introduces comprehensive diagnostics, execution event troubleshooting, and encrypted backup recovery capabilities. These features are hardened according to defense-in-depth principles:
+
+### 12.1 Strict Secret Exclusion in Backups
+* **Zero Secret Export**: Android KeyStore private/master keys, encrypted proxy passwords, proxy usernames, and encryption initialization vectors (IVs) are **strictly excluded** from `.autopilot` exports.
+* `ProxyEntity` export scrub: `encryptedUsername = null`, `encryptedPassword = null`, `usernameIv = null`, `passwordIv = null`.
+* User proxy notes receive a security tag: `[Credentials excluded in backup for security]`. Users must re-enter credentials upon restore.
+
+### 12.2 Authenticated Backup Encryption
+* **Algorithm**: AES-256-GCM (`AES/GCM/NoPadding`) with 128-bit authentication tag.
+* **Key Derivation**: PBKDF2 with HMAC-SHA256 (`PBKDF2WithHmacSHA256`), upgraded to **250,000 iterations** (`BackupCrypto.PBKDF2_ITERATIONS`) to meet OWASP mobile computational work factor baselines on modern ARM hardware while maintaining sub-300ms responsiveness.
+* **Backward Compatibility**: Archives encrypted with legacy 100,000 iterations (`BackupCrypto.LEGACY_PBKDF2_ITERATIONS`) store their iteration count in `manifest.kdfIterations` and decrypt seamlessly.
+* **Entropy**:
+  * 16-byte random salt per backup via `SecureRandom`.
+  * 12-byte random IV/nonce per backup via `SecureRandom`.
+  * **Nonce Reuse Prevention**: Unique IV generated on every single encryption call. Nonces are never reused.
+* **Tamper Evidence**: Any tampering with ciphertext or manifest yields an immediate `AEADBadTagException` and cancels restore before database execution.
+
+### 12.3 Archive Security & Path Traversal (Zip Slip) Defense
+* When inspecting and unzipping `.autopilot` archives, entry names are strictly validated:
+  * Any entry containing `..` or leading directory traversal characters (`/` or `\`) throws an immediate `SecurityException`.
+  * Target extraction paths are checked with `.canonicalPath` to ensure they reside strictly within the intended temporary directory.
+* **Zip Bomb Protection**: Maximum entry count is capped at 50, and uncompressed byte threshold is capped at 50MB.
+
+### 12.4 Diagnostic Privacy & Sanitization
+* **Controlled Probes**: Diagnostic network checks target a zero-payload Google endpoint (`https://www.google.com/generate_204`). No user identifiers, cookies, or tokens are transmitted.
+* **URL Sanitization**: `ExecutionEventTracker.sanitizeUrl()` scrubs all URL query parameters (`?[query-redacted]`) and strips user credentials.
+* **Credential Masking**: `ExecutionEventTracker.sanitizeSensitiveText()` scans for sensitive keywords (`password`, `token`, `secret`, `key`) and redacts values.
+* **Zero Content Logging**: HTML page content, DOM trees, cookies, and HTTP auth headers are never recorded in execution event timelines.
+
+### 12.5 Fail-Safe Restoration & Active Session Protection
+* **Pre-Transaction Entity Validation**: Structural and range validation (non-blank IDs, non-blank names, port range 1..65535) is performed before modifying the database.
+* **Atomic Database Transactions**: All restoration writes are executed inside `database.withTransaction { ... }`, guaranteeing that any constraint failure results in complete rollback.
+* **Disabled Schedules Rule**: Restored schedules are forced to `enabled = false` and `status = 'IDLE'` to prevent unreviewed background executions from firing immediately.
+* **Pre-Replace Safety Backup**: Before executing a destructive `REPLACE` restore, the system automatically creates a local safety backup archive.
+* **Recovery Center Active Session Protection**: `RecoveryManager.resetStuckAutomations()` checks `coordinator.engineState.value` to ensure that legitimately active `RUNNING` and user-initiated `PAUSED` automation sessions are strictly preserved and never wiped. Only genuine zombie states from app crashes/process termination are repaired.
+
+---
+
 *This security specification is maintained under continuous revision to adapt to evolving Android platform capabilities, Chromium security patches, and regulatory frameworks.*
+

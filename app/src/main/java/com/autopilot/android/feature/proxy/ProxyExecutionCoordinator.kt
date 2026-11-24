@@ -89,6 +89,23 @@ class ProxyExecutionCoordinator {
         }
     }
 
+    /**
+     * Updates the active proxy override dynamically while maintaining current lock ownership.
+     */
+    suspend fun updateProxy(proxy: ProxyConfiguration?) {
+        try {
+            if (proxy != null) {
+                applyProxyInternal(proxy)
+                _activeProxy.value = proxy
+            } else {
+                clearProxyInternal()
+                _activeProxy.value = null
+            }
+        } catch (e: Exception) {
+            // Fall back or keep existing proxy on update error
+        }
+    }
+
     private suspend fun applyProxyInternal(proxy: ProxyConfiguration) {
         if (!ProxyCompatibilityChecker.isProxyOverrideSupported()) {
             // If device WebView does not support PROXY_OVERRIDE, do not crash; record state

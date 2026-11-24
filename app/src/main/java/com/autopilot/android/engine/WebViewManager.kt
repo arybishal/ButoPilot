@@ -30,6 +30,12 @@ class WebViewManager(
     private val mainHandler = Handler(Looper.getMainLooper())
     private val webViewMap = ConcurrentHashMap<Int, WebView>()
     private val tabStateMap = ConcurrentHashMap<Int, TabState>()
+    private var scriptOnPageFinished: String? = null
+
+    /** Script injected after every completed page load; pass null to disable. */
+    fun setScriptOnPageFinished(script: String?) {
+        scriptOnPageFinished = script
+    }
 
     private val _activeTabIndex = MutableStateFlow(0)
     val activeTabIndex: StateFlow<Int> = _activeTabIndex.asStateFlow()
@@ -100,6 +106,7 @@ class WebViewManager(
                                 loadProgress = 100
                             )
                         }
+                        scriptOnPageFinished?.let { script -> view?.evaluateJavascript(script, null) }
                         onNavigationStateChange(tabIndex, false, view?.title, url)
                     }
 

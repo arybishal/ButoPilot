@@ -1,4 +1,5 @@
 package com.autopilot.android.ui.screen
+import com.autopilot.android.ui.theme.AppColors
 
 import android.os.Build
 import androidx.compose.foundation.background
@@ -28,7 +29,10 @@ import kotlinx.coroutines.launch
 fun ProfileScreen(
     onNavigateToHistory: () -> Unit,
     onNavigateToSchedules: () -> Unit,
-    onNavigateToProxies: () -> Unit
+    onNavigateToProxies: () -> Unit,
+    onNavigateToDiagnostics: () -> Unit,
+    onNavigateToBackup: () -> Unit,
+    onNavigateToRecovery: () -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
     var isRootGranted by remember { mutableStateOf(false) }
@@ -49,7 +53,7 @@ fun ProfileScreen(
             text = "Profile",
             fontSize = 26.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFF0F172A),
+            color = Color.Black,
             modifier = Modifier.padding(bottom = 20.dp)
         )
 
@@ -88,7 +92,7 @@ fun ProfileScreen(
                         text = "The",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0F172A)
+                        color = Color.Black
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
@@ -107,7 +111,7 @@ fun ProfileScreen(
             text = "System & Security",
             fontSize = 17.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFF0F172A)
+            color = Color.Black
         )
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -136,7 +140,7 @@ fun ProfileScreen(
                                 text = "Root Access (Magisk)",
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF0F172A)
+                                color = Color.Black
                             )
                             Text(
                                 text = if (isRootGranted) "Granted • Spoofing Enabled" else "Not Granted • Tap to request",
@@ -154,11 +158,11 @@ fun ProfileScreen(
                                 }
                             },
                             shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0)),
+                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.Primary, contentColor = AppColors.OnPrimary),
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                             modifier = Modifier.height(32.dp)
                         ) {
-                            Text("Grant", fontSize = 12.sp, color = Color.White)
+                            Text("Grant", fontSize = 12.sp, color = AppColors.OnPrimary)
                         }
                     } else {
                         Text(
@@ -177,7 +181,7 @@ fun ProfileScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text("Device", fontSize = 14.sp, color = Color(0xFF64748B))
-                    Text("${Build.MANUFACTURER} ${Build.MODEL}", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color(0xFF0F172A))
+                    Text("${Build.MANUFACTURER} ${Build.MODEL}", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.Black)
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -187,7 +191,7 @@ fun ProfileScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text("Android Version", fontSize = 14.sp, color = Color(0xFF64748B))
-                    Text("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color(0xFF0F172A))
+                    Text("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.Black)
                 }
             }
         }
@@ -199,7 +203,7 @@ fun ProfileScreen(
             text = "Quick Access",
             fontSize = 17.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFF0F172A)
+            color = Color.Black
         )
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -235,6 +239,47 @@ fun ProfileScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // --- 4b. Diagnostics & Maintenance ---
+        Text(
+            text = "Diagnostics & Data Recovery",
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.Black
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC))
+        ) {
+            Column {
+                ProfileMenuItem(
+                    icon = Icons.Filled.HealthAndSafety,
+                    title = "Diagnostics Center",
+                    subtitle = "System health, database integrity, and network tests",
+                    onClick = onNavigateToDiagnostics
+                )
+                HorizontalDivider(color = Color(0xFFE2E8F0))
+                ProfileMenuItem(
+                    icon = Icons.Filled.Backup,
+                    title = "Backup & Restore",
+                    subtitle = "Export encrypted .autopilot archives and restore",
+                    onClick = onNavigateToBackup
+                )
+                HorizontalDivider(color = Color(0xFFE2E8F0))
+                ProfileMenuItem(
+                    icon = Icons.Filled.BuildCircle,
+                    title = "Recovery Center",
+                    subtitle = "Self-healing repairs, cache cleaner, and database vacuum",
+                    onClick = onNavigateToRecovery
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         // --- 5. App Information ---
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -247,7 +292,7 @@ fun ProfileScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text("AutoPilot Version", fontSize = 14.sp, color = Color(0xFF64748B))
-                    Text("1.0.0 (Production)", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color(0xFF0F172A))
+                    Text("1.0.0 (Production)", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.Black)
                 }
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
@@ -255,7 +300,7 @@ fun ProfileScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text("Target SDK", fontSize = 14.sp, color = Color(0xFF64748B))
-                    Text("35 (Android 15)", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color(0xFF0F172A))
+                    Text("35 (Android 15)", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.Black)
                 }
             }
         }
@@ -279,7 +324,7 @@ private fun ProfileMenuItem(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = Color(0xFF1565C0),
+            tint = Color.Black,
             modifier = Modifier.size(24.dp)
         )
         Spacer(modifier = Modifier.width(14.dp))
@@ -288,7 +333,7 @@ private fun ProfileMenuItem(
                 text = title,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = Color(0xFF0F172A)
+                color = Color.Black
             )
             Text(
                 text = subtitle,

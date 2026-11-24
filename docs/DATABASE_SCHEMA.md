@@ -836,3 +836,135 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
 * **Cascading Deletions**: Enforces `ON DELETE CASCADE` on `profile_id`, ensuring orphaned schedules are deleted if a profile is removed.
 * **Fast Queries**: Dual indexes provide O(log N) lookup by `profile_id` and composite query acceleration on `(is_enabled, status, next_run_time_millis)`.
 * **Verification**: Tested via unit migration tests (`DatabaseMigrationTest`) and verified in LDPlayer runtime upgrades without wiping app data.
+
+---
+
+### 6.7 Implemented Production Migrations: `MIGRATION_2_3` (Phase 4)
+
+In Phase 4, the database version was incremented from **Version 2** to **Version 3** to introduce network proxy isolation and proxy sources.
+
+#### Migration Specification: `MIGRATION_2_3`
+```kotlin
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `automation_profiles` ADD COLUMN `proxyId` TEXT DEFAULT NULL")
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `proxy_configurations` (
+                `id` TEXT NOT NULL,
+                `name` TEXT NOT NULL,
+                `protocol` TEXT NOT NULL,
+                `host` TEXT NOT NULL,
+                `port` INTEGER NOT NULL,
+                `encryptedUsername` TEXT,
+                `encryptedPassword` TEXT,
+                `usernameIv` TEXT,
+                `passwordIv` TEXT,
+                `region` TEXT,
+                `notes` TEXT NOT NULL,
+                `sourceId` TEXT,
+                `enabled` INTEGER NOT NULL,
+                `lastHealthStatus` TEXT NOT NULL,
+                `lastLatencyMs` INTEGER,
+                `lastTestedAt` INTEGER,
+                `lastErrorMessage` TEXT,
+                `createdAt` INTEGER NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_proxy_configurations_host_port` ON `proxy_configurations` (`host`, `port`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_proxy_configurations_enabled` ON `proxy_configurations` (`enabled`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_proxy_configurations_lastHealthStatus` ON `proxy_configurations` (`lastHealthStatus`)")
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `proxy_sources` (
+                `id` TEXT NOT NULL,
+                `name` TEXT NOT NULL,
+                `sourceType` TEXT NOT NULL,
+                `urlOrPath` TEXT,
+                `lastRefreshedAt` INTEGER,
+                `proxyCount` INTEGER NOT NULL,
+                `createdAt` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent()
+        )
+    }
+}
+```
+
+---
+
+### 6.8 Implemented Production Migrations: `MIGRATION_3_4` (Phase 5)
+
+In Phase 5, the database version was incremented from **Version 3** to **Version 4** to introduce application diagnostics history, structured execution troubleshooting events, and backup history records.
+
+#### Migration Specification: `MIGRATION_3_4`
+```kotlin
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // 1. Diagnostic records table
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `diagnostic_records` (
+                `id` TEXT NOT NULL,
+                `timestamp` INTEGER NOT NULL,
+                `category` TEXT NOT NULL,
+                `status` TEXT NOT NULL,
+                `shortResult` TEXT NOT NULL,
+                `durationMs` INTEGER NOT NULL,
+                `technicalDetailsJson` TEXT NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_diagnostic_records_category` ON `diagnostic_records` (`category`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_diagnostic_records_timestamp` ON `diagnostic_records` (`timestamp`)")
+
+        // 2. Structured execution events table
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `execution_events` (
+                `id` TEXT NOT NULL,
+                `executionId` TEXT NOT NULL,
+                `profileId` TEXT NOT NULL,
+                `timestamp` INTEGER NOT NULL,
+                `eventType` TEXT NOT NULL,
+                `errorCategory` TEXT,
+                `message` TEXT NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_execution_events_executionId` ON `execution_events` (`executionId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_execution_events_profileId` ON `execution_events` (`profileId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_execution_events_timestamp` ON `execution_events` (`timestamp`)")
+
+        // 3. Backup records table
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `backup_records` (
+                `id` TEXT NOT NULL,
+                `timestamp` INTEGER NOT NULL,
+                `filePath` TEXT NOT NULL,
+                `sizeBytes` INTEGER NOT NULL,
+                `isEncrypted` INTEGER NOT NULL,
+                `itemCount` INTEGER NOT NULL,
+                `status` TEXT NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_backup_records_timestamp` ON `backup_records` (`timestamp`)")
+    }
+}
+```
+
+#### Schema v4 Tables & Verification:
+- `diagnostic_records`: Stores system health check telemetry with indexed category and timestamps.
+- `execution_events`: Correlates structured navigation, proxy, and error lifecycle events to execution IDs.
+- `backup_records`: Tracks internal `.autopilot` exports, restores, encryption state, and item counts.
+- **Verification**: Verified on live LDPlayer emulator (`emulator-5554`) upgrading from Schema v3 to v4 with `PRAGMA user_version = 4` and 0 data loss.
+

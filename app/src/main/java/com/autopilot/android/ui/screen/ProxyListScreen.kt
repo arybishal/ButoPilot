@@ -22,10 +22,13 @@ import com.autopilot.android.data.repository.ProxyRepository
 import com.autopilot.android.domain.model.proxy.CountryFilterRule
 import com.autopilot.android.domain.model.proxy.ProxyConfiguration
 import com.autopilot.android.domain.model.proxy.ProxyHealthStatus
+import androidx.compose.material.icons.filled.DeleteSweep
 import com.autopilot.android.domain.model.proxy.ProxyProtocol
 import com.autopilot.android.feature.proxy.ProxyCompatibilityChecker
 import com.autopilot.android.feature.proxy.ProxyHealthChecker
 import com.autopilot.android.feature.proxy.ProxySourceManager
+import com.autopilot.android.feature.proxy.source.GeonodeFetchResult
+import com.autopilot.android.feature.proxy.source.GeonodeProxySourceAdapter
 import com.autopilot.android.feature.proxy.source.ProxiflyProxySourceAdapter
 import kotlinx.coroutines.launch
 
@@ -44,8 +47,13 @@ fun ProxyListScreen(
     var selectedFilter by remember { mutableStateOf("ALL") }
     var selectedCountry by remember { mutableStateOf("ALL") }
     var showImportDialog by remember { mutableStateOf(false) }
+    var showDeleteUnhealthyDialog by remember { mutableStateOf(false) }
     var proxyToDelete by remember { mutableStateOf<ProxyConfiguration?>(null) }
     var testingProxyId by remember { mutableStateOf<String?>(null) }
+
+    val unhealthyCount = remember(proxies) {
+        proxies.count { it.lastHealthStatus == ProxyHealthStatus.UNHEALTHY || it.lastHealthStatus == ProxyHealthStatus.TIMEOUT || it.lastHealthStatus == ProxyHealthStatus.AUTH_FAILURE }
+    }
 
     val compatibility = remember { ProxyCompatibilityChecker.checkCompatibility(null) }
 
@@ -86,6 +94,15 @@ fun ProxyListScreen(
                     }
                 },
                 actions = {
+                    if (unhealthyCount > 0) {
+                        IconButton(onClick = { showDeleteUnhealthyDialog = true }) {
+                            Icon(
+                                Icons.Default.DeleteSweep,
+                                contentDescription = "Remove Unhealthy Proxies",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
                     IconButton(onClick = { showImportDialog = true }) {
                         Icon(Icons.Default.UploadFile, contentDescription = "Import List")
                     }
@@ -200,6 +217,20 @@ fun ProxyListScreen(
                         onClick = { selectedFilter = "UNTESTED" },
                         label = { Text("Untested (${proxies.count { it.lastHealthStatus == ProxyHealthStatus.UNTESTED }})") }
                     )
+                }
+            }
+
+            if (unhealthyCount > 0 && selectedFilter == "UNHEALTHY") {
+                item {
+                    Button(
+                        onClick = { showDeleteUnhealthyDialog = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Remove All $unhealthyCount Unhealthy Proxies")
+                    }
                 }
             }
 
@@ -329,6 +360,33 @@ fun ProxyListScreen(
             },
             dismissButton = {
                 TextButton(onClick = { proxyToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Delete unhealthy confirmation dialog
+    if (showDeleteUnhealthyDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteUnhealthyDialog = false },
+            title = { Text("Remove Unhealthy Proxies?") },
+            text = { Text("Are you sure you want to delete all $unhealthyCount proxies that failed health verification? This will permanently remove them from your proxy list.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            val count = proxyRepository.deleteUnhealthyProxies()
+                            showDeleteUnhealthyDialog = false
+                            snackbarHostState.showSnackbar("Removed $count unhealthy proxies.")
+                        }
+                    }
+                ) {
+                    Text("Remove All", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteUnhealthyDialog = false }) {
                     Text("Cancel")
                 }
             }
@@ -529,6 +587,12 @@ fun ImportProxiesDialog(
     var isFetchingProxifly by remember { mutableStateOf(false) }
     var proxiflyResult by remember { mutableStateOf<com.autopilot.android.feature.proxy.source.ProxiflyFetchResult?>(null) }
 
+    // GeoNode Tab state
+    var geonodeUrl by remember { mutableStateOf(GeonodeProxySourceAdapter.DEFAULT_URL) }
+    var geonodeCountryFilterText by remember { mutableStateOf("") }
+    var isFetchingGeonode by remember { mutableStateOf(false) }
+    var geonodeResult by remember { mutableStateOf<GeonodeFetchResult?>(null) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Import Proxies") },
@@ -544,6 +608,11 @@ fun ImportProxiesDialog(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
                         text = { Text("Proxifly Free") }
+                    )
+                    Tab(
+                        selected = selectedTab == 2,
+                        onClick = { selectedTab = 2 },
+                        text = { Text("GeoNode Free") }
                     )
                 }
 
@@ -578,7 +647,7 @@ fun ImportProxiesDialog(
                             fontWeight = FontWeight.SemiBold
                         )
                     }
-                } else {
+                } else if (selectedTab == 1) {
                     // Proxifly Free List
                     Text(
                         "Fetch updated public proxy lists from Proxifly repository.",
@@ -684,27 +753,128 @@ fun ImportProxiesDialog(
                             )
                         }
                     }
+                } else {
+                    // GeoNode Free List
+                    Text(
+                        "Fetch fast public HTTP/SOCKS5 proxies from GeoNode API.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = geonodeUrl,
+                        onValueChange = { geonodeUrl = it },
+                        label = { Text("GeoNode API URL") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = false,
+                        maxLines = 3
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = geonodeCountryFilterText,
+                        onValueChange = { geonodeCountryFilterText = it },
+                        label = { Text("Country Filter (Optional)") },
+                        placeholder = { Text("e.g. US, DE, GB") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                isFetchingGeonode = true
+                                val countryCodes = geonodeCountryFilterText.split(",")
+                                    .map { it.trim().uppercase() }
+                                    .filter { it.isNotBlank() }
+                                    .toSet()
+
+                                val filterRule = if (countryCodes.isNotEmpty()) {
+                                    CountryFilterRule(allowlist = countryCodes)
+                                } else null
+
+                                val adapter = GeonodeProxySourceAdapter()
+                                geonodeResult = adapter.fetchProxies(
+                                    customUrl = geonodeUrl,
+                                    countryFilter = filterRule,
+                                    existingProxies = existingProxies
+                                )
+                                isFetchingGeonode = false
+                            }
+                        },
+                        enabled = !isFetchingGeonode,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (isFetchingGeonode) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Fetching...")
+                        } else {
+                            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Fetch from GeoNode")
+                        }
+                    }
+
+                    geonodeResult?.let { res ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        if (res.success) {
+                            Text(
+                                "Fetched ${res.totalFetched} total. Ready to import: ${res.validProxies.size} new (${res.duplicatesSkipped} duplicates, ${res.filteredOutByCountry} filtered by country).",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        } else {
+                            Text(
+                                "Error: ${res.errorMessage}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
                 }
             }
         },
         confirmButton = {
-            if (selectedTab == 0) {
-                Button(
-                    onClick = {
-                        summary?.importedProxies?.let { onImport(it) }
-                    },
-                    enabled = (summary?.validCount ?: 0) > 0
-                ) {
-                    Text("Import (${summary?.validCount ?: 0})")
+            when (selectedTab) {
+                0 -> {
+                    Button(
+                        onClick = {
+                            summary?.importedProxies?.let { onImport(it) }
+                        },
+                        enabled = (summary?.validCount ?: 0) > 0
+                    ) {
+                        Text("Import (${summary?.validCount ?: 0})")
+                    }
                 }
-            } else {
-                Button(
-                    onClick = {
-                        proxiflyResult?.validProxies?.let { onImport(it) }
-                    },
-                    enabled = (proxiflyResult?.validProxies?.size ?: 0) > 0
-                ) {
-                    Text("Import (${proxiflyResult?.validProxies?.size ?: 0})")
+                1 -> {
+                    Button(
+                        onClick = {
+                            proxiflyResult?.validProxies?.let { onImport(it) }
+                        },
+                        enabled = (proxiflyResult?.validProxies?.size ?: 0) > 0
+                    ) {
+                        Text("Import (${proxiflyResult?.validProxies?.size ?: 0})")
+                    }
+                }
+                else -> {
+                    Button(
+                        onClick = {
+                            geonodeResult?.validProxies?.let { onImport(it) }
+                        },
+                        enabled = (geonodeResult?.validProxies?.size ?: 0) > 0
+                    ) {
+                        Text("Import (${geonodeResult?.validProxies?.size ?: 0})")
+                    }
                 }
             }
         },

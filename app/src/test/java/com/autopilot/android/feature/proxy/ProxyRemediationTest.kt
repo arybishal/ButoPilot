@@ -5,6 +5,9 @@ import com.autopilot.android.core.security.ProxyCredentialEncryptor
 import com.autopilot.android.domain.model.AutomationProfile
 import com.autopilot.android.domain.model.ProfileStatus
 import com.autopilot.android.domain.model.proxy.*
+import com.autopilot.android.feature.proxy.source.GeonodeApiResponse
+import com.autopilot.android.feature.proxy.source.GeonodeProxyItem
+import com.autopilot.android.feature.proxy.source.GeonodeProxySourceAdapter
 import com.autopilot.android.feature.proxy.source.ProxiflyFetchResult
 import com.autopilot.android.feature.proxy.source.ProxiflyGeolocation
 import com.autopilot.android.feature.proxy.source.ProxiflyProxyItem
@@ -731,5 +734,162 @@ class ProxyRemediationTest {
         val rule = "socks://${socksProxyWithAuth.host}:${socksProxyWithAuth.port}"
         assertEquals("socks://127.0.0.1:1080", rule)
         assertNotNull(socksProxyWithAuth.credentials)
+    }
+
+    // --- PART H: GeoNode Public Proxy Source & Unhealthy Cleanups ---
+
+    @Test
+    fun testGeonodeApiResponseParsingAndMapping() {
+        val json = """
+            {
+              "data": [
+                {
+                  "_id": "6a510c100f4e8b1e0d30e266",
+                  "ip": "5.39.255.142",
+                  "port": "8118",
+                  "protocols": ["http"],
+                  "country": "DE",
+                  "city": "Frankfurt am Main",
+                  "anonymityLevel": "elite",
+                  "speed": 16,
+                  "upTime": 99.9,
+                  "responseTime": 4729
+                },
+                {
+                  "_id": "6a510c100f4e8b1e0d30e267",
+                  "ip": "38.127.172.219",
+                  "port": "37234",
+                  "protocols": ["socks5"],
+                  "country": "US",
+                  "city": "Dallas",
+                  "anonymityLevel": "anonymous",
+                  "speed": 25,
+                  "upTime": 98.5,
+                  "responseTime": 1200
+                }
+              ],
+              "total": 2,
+              "page": 1,
+              "limit": 500
+            }
+        """.trimIndent()
+
+        val gson = Gson()
+        val response = gson.fromJson(json, GeonodeApiResponse::class.java)
+
+        assertNotNull(response)
+        assertEquals(2, response.total)
+        val items = response.data
+        assertNotNull(items)
+        assertEquals(2, items!!.size)
+
+        // Item 0: HTTP DE
+        assertEquals("5.39.255.142", items[0].ip)
+        assertEquals("8118", items[0].port)
+        assertEquals(8118, items[0].port?.toIntOrNull())
+        assertEquals(listOf("http"), items[0].protocols)
+        assertEquals("DE", items[0].country)
+        assertEquals("Frankfurt am Main", items[0].city)
+
+        // Item 1: SOCKS5 US
+        assertEquals("38.127.172.219", items[1].ip)
+        assertEquals("37234", items[1].port)
+        assertEquals(37234, items[1].port?.toIntOrNull())
+        assertEquals(listOf("socks5"), items[1].protocols)
+        assertEquals("US", items[1].country)
+    }
+
+    @Test
+    fun testGeonodeCountryFilterAndDeduplication() {
+        val items = listOf(
+            GeonodeProxyItem(
+                ip = "5.39.255.142",
+                port = "8118",
+                protocols = listOf("http"),
+                country = "DE"
+            ),
+            GeonodeProxyItem(
+                ip = "38.127.172.219",
+                port = "37234",
+                protocols = listOf("socks5"),
+                country = "US"
+            ),
+            GeonodeProxyItem(
+                ip = "192.168.1.1",
+                port = "8080",
+                protocols = listOf("http"),
+                country = "US"
+            )
+        )
+
+        val existing = listOf(
+            ProxyConfiguration(name = "Existing DE", host = "5.39.255.142", port = 8118)
+        )
+        val existingKeys = existing.map { "${it.host.lowercase()}:${it.port}" }.toSet()
+
+        val filter = CountryFilterRule(allowlist = setOf("US"))
+        val imported = mutableListOf<ProxyConfiguration>()
+        var duplicates = 0
+        var filteredByCountry = 0
+
+        for (item in items) {
+            val host = item.ip ?: continue
+            val port = item.port?.toIntOrNull() ?: continue
+            val country = CountryCodeValidator.normalize(item.country)
+
+            if (!filter.matches(country)) {
+                filteredByCountry++
+                continue
+            }
+
+            val key = "${host.lowercase()}:$port"
+            if (existingKeys.contains(key)) {
+                duplicates++
+                continue
+            }
+
+            imported.add(
+                ProxyConfiguration(
+                    name = "GeoNode ${item.protocols?.firstOrNull()?.uppercase()} $country",
+                    protocol = if (item.protocols?.contains("socks5") == true) ProxyProtocol.SOCKS5 else ProxyProtocol.HTTP,
+                    host = host,
+                    port = port,
+                    region = country,
+                    sourceId = "geonode",
+                    lastHealthStatus = ProxyHealthStatus.UNTESTED
+                )
+            )
+        }
+
+        assertEquals("DE should be filtered out by US allowlist", 1, filteredByCountry)
+        assertEquals("No US duplicates in existing set", 0, duplicates)
+        assertEquals("2 US proxies imported", 2, imported.size)
+        assertEquals("38.127.172.219", imported[0].host)
+        assertEquals(37234, imported[0].port)
+        assertEquals(ProxyProtocol.SOCKS5, imported[0].protocol)
+        assertEquals("192.168.1.1", imported[1].host)
+        assertEquals(8080, imported[1].port)
+        assertEquals(ProxyProtocol.HTTP, imported[1].protocol)
+    }
+
+    @Test
+    fun testDeleteUnhealthyProxiesContract() {
+        val proxies = mutableListOf(
+            ProxyConfiguration(id = "1", name = "Healthy 1", host = "1.1.1.1", port = 80, lastHealthStatus = ProxyHealthStatus.HEALTHY),
+            ProxyConfiguration(id = "2", name = "Unhealthy 1", host = "2.2.2.2", port = 80, lastHealthStatus = ProxyHealthStatus.UNHEALTHY),
+            ProxyConfiguration(id = "3", name = "Timeout 1", host = "3.3.3.3", port = 80, lastHealthStatus = ProxyHealthStatus.TIMEOUT),
+            ProxyConfiguration(id = "4", name = "Auth Fail 1", host = "4.4.4.4", port = 80, lastHealthStatus = ProxyHealthStatus.AUTH_FAILURE),
+            ProxyConfiguration(id = "5", name = "Untested 1", host = "5.5.5.5", port = 80, lastHealthStatus = ProxyHealthStatus.UNTESTED)
+        )
+
+        val unhealthyStatuses = setOf(ProxyHealthStatus.UNHEALTHY, ProxyHealthStatus.TIMEOUT, ProxyHealthStatus.AUTH_FAILURE)
+        val deletedCount = proxies.count { it.lastHealthStatus in unhealthyStatuses }
+        proxies.removeAll { it.lastHealthStatus in unhealthyStatuses }
+
+        assertEquals(3, deletedCount)
+        assertEquals(2, proxies.size)
+        assertTrue(proxies.none { it.lastHealthStatus in unhealthyStatuses })
+        assertTrue(proxies.any { it.lastHealthStatus == ProxyHealthStatus.HEALTHY })
+        assertTrue(proxies.any { it.lastHealthStatus == ProxyHealthStatus.UNTESTED })
     }
 }

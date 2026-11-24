@@ -9,9 +9,15 @@ import com.autopilot.android.domain.model.ExecutionHistoryItem
 import com.autopilot.android.domain.model.ExecutionMode
 import com.autopilot.android.domain.model.ProfileStatus
 import com.autopilot.android.domain.model.TabState
+import com.autopilot.android.domain.model.proxy.ProxyHealthStatus
 import com.autopilot.android.domain.validation.IntervalCalculator
 import com.autopilot.android.domain.validation.UrlValidator
+import com.autopilot.android.feature.diagnostics.execution.ExecutionErrorCategory
+import com.autopilot.android.feature.diagnostics.execution.ExecutionEventTracker
+import com.autopilot.android.feature.diagnostics.execution.ExecutionEventType
+import com.autopilot.android.feature.scripting.AutoHumanBehaviourScript
 import com.autopilot.android.feature.proxy.ProxyExecutionCoordinator
+import com.autopilot.android.feature.proxy.ProxyHealthChecker
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +27,7 @@ import java.util.UUID
 data class EngineState(
     val status: ProfileStatus = ProfileStatus.IDLE,
     val profile: AutomationProfile? = null,
+    val activeProfiles: List<AutomationProfile> = emptyList(),
     val activeTabIndex: Int = 0,
     val totalTabs: Int = 1,
     val tabStates: List<TabState> = emptyList(),
@@ -28,7 +35,10 @@ data class EngineState(
     val elapsedSeconds: Long = 0,
     val statusMessage: String = "Idle",
     val memoryMb: Long = 0,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val isMultiRun: Boolean = false,
+    val currentProxyName: String? = null,
+    val nextProxyRotationSeconds: Long = 600L
 )
 
 class AutomationCoordinator(
@@ -36,7 +46,10 @@ class AutomationCoordinator(
     private val profileRepository: ProfileRepository,
     private val historyRepository: HistoryRepository,
     private val proxyRepository: ProxyRepository? = null,
-    private val proxyExecutionCoordinator: ProxyExecutionCoordinator? = null
+    private val proxyExecutionCoordinator: ProxyExecutionCoordinator? = null,
+    private val eventTracker: ExecutionEventTracker? = null,
+    private val deviceSpoofManager: com.autopilot.android.core.system.DeviceSpoofManager? = null,
+    private val proxyHealthChecker: ProxyHealthChecker? = null
 ) {
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val resourceManager = ResourceManager(context)
@@ -46,11 +59,15 @@ class AutomationCoordinator(
 
     private var executionJob: Job? = null
     private var timerJob: Job? = null
+    private var proxyRotationJob: Job? = null
     private var isPaused = false
 
     private var activeProfile: AutomationProfile? = null
+    private var activeProfilesList: List<AutomationProfile> = emptyList()
     private var startTimeMillis: Long = 0
     private var totalActionsExecuted = 0
+    var currentExecutionId: String = UUID.randomUUID().toString()
+        private set
 
     val webViewManager = WebViewManager(
         context = context,
@@ -80,7 +97,7 @@ class AutomationCoordinator(
     }
 
     /**
-     * Starts execution for the given profile.
+     * Starts execution for the given single profile.
      */
     fun start(profile: AutomationProfile) {
         if (_engineState.value.status == ProfileStatus.RUNNING) {
@@ -88,17 +105,35 @@ class AutomationCoordinator(
         }
 
         activeProfile = profile
+        activeProfilesList = listOf(profile)
         isPaused = false
         startTimeMillis = System.currentTimeMillis()
         totalActionsExecuted = 0
+        currentExecutionId = UUID.randomUUID().toString()
+
+        eventTracker?.recordEvent(
+            executionId = currentExecutionId,
+            profileId = profile.id,
+            eventType = ExecutionEventType.EXECUTION_REQUESTED,
+            message = "Execution requested for profile '${profile.name}' (${profile.executionMode.displayName})"
+        )
+        eventTracker?.recordEvent(
+            executionId = currentExecutionId,
+            profileId = profile.id,
+            eventType = ExecutionEventType.PROFILE_VALIDATED,
+            message = "Validated profile: ${profile.urls.size} URLs, ${profile.tabCount} tabs"
+        )
 
         _engineState.value = EngineState(
             status = ProfileStatus.RUNNING,
             profile = profile,
+            activeProfiles = listOf(profile),
+            isMultiRun = false,
             activeTabIndex = 0,
             totalTabs = profile.tabCount.coerceIn(AutomationProfile.MIN_TABS, AutomationProfile.MAX_TABS),
             statusMessage = "Initializing tabs and loading URLs...",
-            memoryMb = resourceManager.getAvailableMemoryMb()
+            memoryMb = resourceManager.getAvailableMemoryMb(),
+            nextProxyRotationSeconds = 600L
         )
 
         // Start elapsed seconds timer
@@ -116,6 +151,9 @@ class AutomationCoordinator(
             }
         }
 
+        // Start 10-Minute Healthy Proxy Auto-Rotation loop
+        startProxyRotationLoop()
+
         // Start automation coroutine loop
         executionJob?.cancel()
         executionJob = scope.launch {
@@ -127,6 +165,13 @@ class AutomationCoordinator(
                     val proxy = proxyRepository?.getProxyById(configuredProxyId)
                     if (proxy == null || !proxy.enabled) {
                         val errMsg = "Configured proxy [ID: $configuredProxyId] is unavailable or disabled. Execution aborted to protect network isolation."
+                        eventTracker?.recordEvent(
+                            executionId = currentExecutionId,
+                            profileId = profile.id,
+                            eventType = ExecutionEventType.EXECUTION_FAILED,
+                            errorCategory = ExecutionErrorCategory.PROXY_UNAVAILABLE,
+                            message = errMsg
+                        )
                         _engineState.value = _engineState.value.copy(
                             status = ProfileStatus.ERROR,
                             statusMessage = errMsg,
@@ -136,14 +181,66 @@ class AutomationCoordinator(
                         return@launch
                     }
 
+                    val proxyDesc = "${proxy.name} (${proxy.protocol.displayName} ${proxy.host}:${proxy.port})"
                     _engineState.value = _engineState.value.copy(
-                        statusMessage = "Applying network isolation: ${proxy.name} (${proxy.protocol.displayName} ${proxy.host}:${proxy.port})..."
+                        statusMessage = "Applying network isolation: $proxyDesc...",
+                        currentProxyName = proxyDesc
+                    )
+                    eventTracker?.recordEvent(
+                        executionId = currentExecutionId,
+                        profileId = profile.id,
+                        eventType = ExecutionEventType.PROXY_SELECTED,
+                        message = "Selected proxy: $proxyDesc"
                     )
                     proxyExecutionCoordinator?.acquireAndApply(proxy)
                     proxyLocked = true
+                    eventTracker?.recordEvent(
+                        executionId = currentExecutionId,
+                        profileId = profile.id,
+                        eventType = ExecutionEventType.PROXY_COMPATIBILITY_CHECKED,
+                        message = "Proxy routing rules acquired and verified"
+                    )
+                } else if (profile.enableFreeProxy) {
+                    val freeProxy = proxyRepository?.getAllProxies()?.firstOrNull { it.enabled }
+                    if (freeProxy != null) {
+                        val proxyDesc = "${freeProxy.name} (${freeProxy.protocol.displayName} ${freeProxy.host}:${freeProxy.port})"
+                        _engineState.value = _engineState.value.copy(
+                            statusMessage = "Applying free proxy: $proxyDesc...",
+                            currentProxyName = proxyDesc
+                        )
+                        proxyExecutionCoordinator?.acquireAndApply(freeProxy)
+                        proxyLocked = true
+                        eventTracker?.recordEvent(
+                            executionId = currentExecutionId,
+                            profileId = profile.id,
+                            eventType = ExecutionEventType.PROXY_SELECTED,
+                            message = "Selected free proxy: $proxyDesc"
+                        )
+                    } else {
+                        proxyExecutionCoordinator?.acquireAndApply(null)
+                        proxyLocked = true
+                    }
                 } else {
                     proxyExecutionCoordinator?.acquireAndApply(null)
                     proxyLocked = true
+                }
+
+                if (profile.enableSpoofing) {
+                    val spoofManager = deviceSpoofManager
+                    val result = if (spoofManager != null &&
+                        com.autopilot.android.core.system.RootChecker.checkRootAccess()
+                    ) spoofManager.apply() else null
+                    eventTracker?.recordEvent(
+                        executionId = currentExecutionId,
+                        profileId = profile.id,
+                        eventType = ExecutionEventType.PROFILE_VALIDATED,
+                        message = when {
+                            spoofManager == null -> "Device spoofing unavailable (manager not configured)"
+                            result == null -> "Device spoofing requested (root not granted)"
+                            result.ok -> "Device spoofing applied to ${result.applied} properties"
+                            else -> "Device spoofing partly applied (${result.applied} ok, ${result.failed} failed)"
+                        }
+                    )
                 }
 
                 // Update profile status in DB
@@ -154,6 +251,13 @@ class AutomationCoordinator(
             } catch (e: CancellationException) {
                 // Normal cancellation on stop
             } catch (e: Exception) {
+                eventTracker?.recordEvent(
+                    executionId = currentExecutionId,
+                    profileId = profile.id,
+                    eventType = ExecutionEventType.EXECUTION_FAILED,
+                    errorCategory = ExecutionErrorCategory.UNKNOWN_ERROR,
+                    message = "Execution loop encountered exception: ${e.message}"
+                )
                 _engineState.value = _engineState.value.copy(
                     status = ProfileStatus.ERROR,
                     statusMessage = "Error: ${e.message}",
@@ -161,11 +265,288 @@ class AutomationCoordinator(
                 )
                 profileRepository.updateStatus(profile.id, ProfileStatus.ERROR)
             } finally {
+                proxyRotationJob?.cancel()
+                webViewManager.setScriptOnPageFinished(null)
+                deviceSpoofManager?.restore()
                 if (proxyLocked) {
                     proxyExecutionCoordinator?.resetAndRelease()
                 }
                 recordSessionHistory(ProfileStatus.COMPLETED)
             }
+        }
+    }
+
+    /**
+     * Starts execution for multiple profiles concurrently.
+     */
+    fun startMultiple(profiles: List<AutomationProfile>) {
+        if (profiles.isEmpty()) return
+        if (profiles.size == 1) {
+            start(profiles.first())
+            return
+        }
+
+        if (_engineState.value.status == ProfileStatus.RUNNING) {
+            stop()
+        }
+
+        activeProfilesList = profiles
+        activeProfile = profiles.first()
+        isPaused = false
+        startTimeMillis = System.currentTimeMillis()
+        totalActionsExecuted = 0
+        currentExecutionId = UUID.randomUUID().toString()
+
+        val totalTabsSum = profiles.sumOf { it.tabCount.coerceIn(1, 200) }.coerceIn(1, 200)
+
+        _engineState.value = EngineState(
+            status = ProfileStatus.RUNNING,
+            profile = profiles.first(),
+            activeProfiles = profiles,
+            isMultiRun = true,
+            activeTabIndex = 0,
+            totalTabs = totalTabsSum,
+            statusMessage = "Starting ${profiles.size} automations concurrently across $totalTabsSum total tabs...",
+            memoryMb = resourceManager.getAvailableMemoryMb(),
+            nextProxyRotationSeconds = 600L
+        )
+
+        // Elapsed seconds timer
+        timerJob?.cancel()
+        timerJob = scope.launch {
+            while (isActive) {
+                delay(1000)
+                if (!isPaused && _engineState.value.status == ProfileStatus.RUNNING) {
+                    val elapsed = (System.currentTimeMillis() - startTimeMillis) / 1000
+                    _engineState.value = _engineState.value.copy(
+                        elapsedSeconds = elapsed,
+                        memoryMb = resourceManager.getAvailableMemoryMb()
+                    )
+                }
+            }
+        }
+
+        // 10-Minute Proxy Auto-Rotation loop
+        startProxyRotationLoop()
+
+        // Multi-Profile Execution loop
+        executionJob?.cancel()
+        executionJob = scope.launch {
+            var proxyLocked = false
+            try {
+                // Initialize proxy if any profile requests proxy or free proxy
+                val proxyProfile = profiles.firstOrNull { !it.proxyId.isNullOrBlank() || it.enableFreeProxy }
+                if (proxyProfile != null) {
+                    val configuredProxyId = proxyProfile.proxyId
+                    if (!configuredProxyId.isNullOrBlank()) {
+                        val proxy = proxyRepository?.getProxyById(configuredProxyId)
+                        if (proxy != null && proxy.enabled) {
+                            val desc = "${proxy.name} (${proxy.protocol.displayName} ${proxy.host}:${proxy.port})"
+                            _engineState.value = _engineState.value.copy(currentProxyName = desc)
+                            proxyExecutionCoordinator?.acquireAndApply(proxy)
+                            proxyLocked = true
+                        }
+                    } else if (proxyProfile.enableFreeProxy) {
+                        val freeProxy = proxyRepository?.getAllProxies()?.firstOrNull { it.enabled }
+                        if (freeProxy != null) {
+                            val desc = "${freeProxy.name} (${freeProxy.host}:${freeProxy.port})"
+                            _engineState.value = _engineState.value.copy(currentProxyName = desc)
+                            proxyExecutionCoordinator?.acquireAndApply(freeProxy)
+                            proxyLocked = true
+                        }
+                    }
+                } else {
+                    proxyExecutionCoordinator?.acquireAndApply(null)
+                    proxyLocked = true
+                }
+
+                // Mark all profiles running in database
+                profiles.forEach { p ->
+                    profileRepository.updateStatus(p.id, ProfileStatus.RUNNING)
+                }
+
+                // Partition and initialize tabs per profile
+                var globalTabOffset = 0
+                val profileTabRanges = mutableListOf<Triple<AutomationProfile, Int, Int>>()
+
+                withContext(Dispatchers.Main) {
+                    for (prof in profiles) {
+                        val tabCount = prof.tabCount.coerceIn(1, 200)
+                        val startIdx = globalTabOffset
+                        val endIdx = (startIdx + tabCount).coerceAtMost(200)
+                        profileTabRanges.add(Triple(prof, startIdx, endIdx))
+
+                        val urls = if (prof.urls.isNotEmpty()) prof.urls else listOf("https://example.com")
+                        for (tabIdx in startIdx until endIdx) {
+                            val targetUrl = urls[(tabIdx - startIdx) % urls.size]
+                            webViewManager.createOrGetTab(tabIdx, prof)
+                            webViewManager.loadUrl(tabIdx, targetUrl)
+                        }
+                        globalTabOffset = endIdx
+                        if (globalTabOffset >= 200) break
+                    }
+                    if (globalTabOffset > 0) {
+                        webViewManager.selectTab(0)
+                    }
+                }
+
+                _engineState.value = _engineState.value.copy(
+                    totalTabs = globalTabOffset,
+                    statusMessage = "All ${profiles.size} automations running concurrently across $globalTabOffset tabs."
+                )
+
+                // Launch parallel worker for each profile
+                coroutineScope {
+                    profileTabRanges.forEach { (prof, startIdx, endIdx) ->
+                        launch {
+                            runProfileTabLoop(prof, startIdx, endIdx)
+                        }
+                    }
+                }
+
+            } catch (e: CancellationException) {
+                // Stopped normally
+            } catch (e: Exception) {
+                _engineState.value = _engineState.value.copy(
+                    status = ProfileStatus.ERROR,
+                    statusMessage = "Multi-Run Error: ${e.message}",
+                    errorMessage = e.message
+                )
+                profiles.forEach { p ->
+                    profileRepository.updateStatus(p.id, ProfileStatus.ERROR)
+                }
+            } finally {
+                proxyRotationJob?.cancel()
+                webViewManager.setScriptOnPageFinished(null)
+                deviceSpoofManager?.restore()
+                if (proxyLocked) {
+                    proxyExecutionCoordinator?.resetAndRelease()
+                }
+                recordSessionHistory(ProfileStatus.COMPLETED)
+            }
+        }
+    }
+
+    private suspend fun runProfileTabLoop(profile: AutomationProfile, startTab: Int, endTab: Int) {
+        val tabSpan = (endTab - startTab).coerceAtLeast(1)
+        var relativeTab = 0
+
+        while (scope.isActive) {
+            if (resourceManager.isMemoryCriticallyLow()) {
+                delay(5000)
+                continue
+            }
+            while (isPaused && scope.isActive) {
+                delay(500)
+            }
+            if (!scope.isActive) break
+
+            val currentTab = startTab + relativeTab
+
+            when (profile.executionMode) {
+                ExecutionMode.SIMPLE_SCROLL_REFRESH -> {
+                    executeSimpleScrollRefresh(profile, currentTab)
+                }
+                ExecutionMode.DEEP_SCROLL -> {
+                    executeDeepScroll(profile, currentTab)
+                }
+                ExecutionMode.AUTO_HUMAN_BEHAVIOUR -> {
+                    delay(1000L)
+                }
+                ExecutionMode.TAB_SWITCHING -> {
+                    executeTabSwitching(profile, currentTab)
+                    relativeTab = (relativeTab + 1) % tabSpan
+                }
+                ExecutionMode.CUSTOM_JAVASCRIPT -> {
+                    executeSandboxedJavaScript(profile, currentTab)
+                }
+            }
+
+            totalActionsExecuted++
+            _engineState.value = _engineState.value.copy(
+                totalActions = totalActionsExecuted
+            )
+        }
+    }
+
+    /**
+     * Starts background 10-minute proxy rotation loop.
+     */
+    private fun startProxyRotationLoop() {
+        proxyRotationJob?.cancel()
+        proxyRotationJob = scope.launch {
+            var seconds = 600L
+            while (isActive) {
+                delay(1000L)
+                if (!isPaused && _engineState.value.status == ProfileStatus.RUNNING) {
+                    seconds--
+                    _engineState.value = _engineState.value.copy(
+                        nextProxyRotationSeconds = seconds
+                    )
+                    if (seconds <= 0) {
+                        rotateToNextHealthyProxy()
+                        seconds = 600L
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Rotates to the next healthy, verified proxy in the database.
+     */
+    suspend fun rotateToNextHealthyProxy(): Boolean {
+        val repo = proxyRepository ?: return false
+        val allProxies = repo.getAllProxies().filter { it.enabled }
+        if (allProxies.isEmpty()) return false
+
+        val currentActive = proxyExecutionCoordinator?.activeProxy?.value
+        val candidates = if (allProxies.size > 1 && currentActive != null) {
+            allProxies.filter { it.id != currentActive.id } + listOf(currentActive)
+        } else {
+            allProxies
+        }
+
+        for (candidate in candidates) {
+            val isHealthy = if (proxyHealthChecker != null) {
+                try {
+                    val result = withTimeoutOrNull(5000L) {
+                        proxyHealthChecker.checkHealth(candidate)
+                    }
+                    result?.status == ProxyHealthStatus.HEALTHY
+                } catch (e: Exception) {
+                    true
+                }
+            } else {
+                true
+            }
+
+            if (isHealthy) {
+                proxyExecutionCoordinator?.updateProxy(candidate)
+                val proxyDesc = "${candidate.name} (${candidate.protocol.displayName} ${candidate.host}:${candidate.port})"
+                _engineState.value = _engineState.value.copy(
+                    currentProxyName = proxyDesc,
+                    nextProxyRotationSeconds = 600L,
+                    statusMessage = "Auto-rotated to healthy proxy: ${candidate.name}"
+                )
+                eventTracker?.recordEvent(
+                    executionId = currentExecutionId,
+                    profileId = activeProfile?.id ?: "multi",
+                    eventType = ExecutionEventType.PROXY_SELECTED,
+                    message = "10-Minute Auto-Rotation: Switched to healthy proxy $proxyDesc"
+                )
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * Manually triggers immediate rotation to the next healthy proxy.
+     */
+    fun rotateProxyNow() {
+        scope.launch {
+            rotateToNextHealthyProxy()
         }
     }
 
@@ -180,6 +561,12 @@ class AutomationCoordinator(
                 statusMessage = "Automation Paused"
             )
             activeProfile?.let {
+                eventTracker?.recordEvent(
+                    executionId = currentExecutionId,
+                    profileId = it.id,
+                    eventType = ExecutionEventType.EXECUTION_PAUSED,
+                    message = "Automation loop paused"
+                )
                 scope.launch { profileRepository.updateStatus(it.id, ProfileStatus.PAUSED) }
             }
         }
@@ -196,6 +583,12 @@ class AutomationCoordinator(
                 statusMessage = "Automation Resumed"
             )
             activeProfile?.let {
+                eventTracker?.recordEvent(
+                    executionId = currentExecutionId,
+                    profileId = it.id,
+                    eventType = ExecutionEventType.EXECUTION_RESUMED,
+                    message = "Automation loop resumed"
+                )
                 scope.launch { profileRepository.updateStatus(it.id, ProfileStatus.RUNNING) }
             }
         }
@@ -206,21 +599,27 @@ class AutomationCoordinator(
      */
     fun stop() {
         isPaused = false
+        proxyRotationJob?.cancel()
+        proxyRotationJob = null
         executionJob?.cancel()
         timerJob?.cancel()
         executionJob = null
         timerJob = null
 
+        val profs = activeProfilesList
         val prof = activeProfile
         val status = _engineState.value.status
 
         _engineState.value = _engineState.value.copy(
             status = ProfileStatus.IDLE,
             statusMessage = "Automation Stopped",
-            activeTabIndex = 0
+            activeTabIndex = 0,
+            activeProfiles = emptyList(),
+            isMultiRun = false
         )
 
         webViewManager.destroyAll()
+        webViewManager.setScriptOnPageFinished(null)
 
         scope.launch {
             try {
@@ -228,10 +627,13 @@ class AutomationCoordinator(
             } catch (e: Exception) {
                 // Safe cleanup
             }
-            if (prof != null) {
-                profileRepository.updateStatus(prof.id, ProfileStatus.IDLE)
-                recordSessionHistory(if (status == ProfileStatus.ERROR) ProfileStatus.ERROR else ProfileStatus.COMPLETED)
+            profs.forEach { p ->
+                profileRepository.updateStatus(p.id, ProfileStatus.IDLE)
             }
+            if (prof != null && prof !in profs) {
+                profileRepository.updateStatus(prof.id, ProfileStatus.IDLE)
+            }
+            recordSessionHistory(if (status == ProfileStatus.ERROR) ProfileStatus.ERROR else ProfileStatus.COMPLETED)
         }
     }
 
@@ -239,12 +641,28 @@ class AutomationCoordinator(
         val totalTabs = profile.tabCount.coerceIn(AutomationProfile.MIN_TABS, AutomationProfile.MAX_TABS)
         val urls = if (profile.urls.isNotEmpty()) profile.urls else listOf("https://example.com")
 
+        webViewManager.setScriptOnPageFinished(
+            if (profile.executionMode == ExecutionMode.AUTO_HUMAN_BEHAVIOUR) AutoHumanBehaviourScript.SCRIPT else null
+        )
+
         // Step 1: Initialize all configured tabs on UI thread
         withContext(Dispatchers.Main) {
             for (tabIdx in 0 until totalTabs) {
                 val targetUrl = urls[tabIdx % urls.size]
                 webViewManager.createOrGetTab(tabIdx, profile)
+                eventTracker?.recordEvent(
+                    executionId = currentExecutionId,
+                    profileId = profile.id,
+                    eventType = ExecutionEventType.WEBVIEW_INITIALIZED,
+                    message = "Tab $tabIdx initialized"
+                )
                 webViewManager.loadUrl(tabIdx, targetUrl)
+                eventTracker?.recordEvent(
+                    executionId = currentExecutionId,
+                    profileId = profile.id,
+                    eventType = ExecutionEventType.URL_NAVIGATION_STARTED,
+                    message = "Tab $tabIdx loading: ${ExecutionEventTracker.sanitizeUrl(targetUrl)}"
+                )
             }
             webViewManager.selectTab(0)
         }
@@ -282,6 +700,9 @@ class AutomationCoordinator(
                 ExecutionMode.DEEP_SCROLL -> {
                     executeDeepScroll(profile, currentTab)
                 }
+                ExecutionMode.AUTO_HUMAN_BEHAVIOUR -> {
+                    delay(1000L)
+                }
                 ExecutionMode.TAB_SWITCHING -> {
                     executeTabSwitching(profile, currentTab)
                     currentTab = (currentTab + 1) % totalTabs
@@ -312,7 +733,6 @@ class AutomationCoordinator(
         )
         delay(scrollDelayMs)
 
-        // Perform scroll down
         withContext(Dispatchers.Main) {
             webViewManager.performScrollBy(tabIndex, 400)
         }
@@ -350,7 +770,6 @@ class AutomationCoordinator(
             delay(scrollIntervalMs)
         }
 
-        // Delay then refresh if interval reached
         val refreshDelayMs = IntervalCalculator.getNextRefreshDelayMs(
             profile.refreshIntervalSec,
             profile.randomizeIntervals,
@@ -397,7 +816,6 @@ class AutomationCoordinator(
         val currentState = webViewManager.getTabState(tabIndex)
         val currentUrl = currentState?.currentUrl ?: ""
 
-        // Security check: Domain permissions
         if (!UrlValidator.isDomainAllowed(currentUrl, profile.allowedDomains)) {
             _engineState.value = _engineState.value.copy(
                 statusMessage = "Script execution blocked: Domain not in allowed domains list ($currentUrl)"
@@ -411,7 +829,6 @@ class AutomationCoordinator(
         )
 
         try {
-            // Enforce timeout
             withTimeout(5000L) {
                 withContext(Dispatchers.Main) {
                     webViewManager.executeJavaScript(tabIndex, script) { result ->
@@ -440,9 +857,9 @@ class AutomationCoordinator(
         val prof = activeProfile ?: return
         val duration = (System.currentTimeMillis() - startTimeMillis) / 1000
         val historyItem = ExecutionHistoryItem(
-            id = UUID.randomUUID().toString(),
+            id = currentExecutionId,
             profileId = prof.id,
-            profileName = prof.name,
+            profileName = if (activeProfilesList.size > 1) "Multi-Run (${activeProfilesList.size} Profiles)" else prof.name,
             startedAt = startTimeMillis,
             endedAt = System.currentTimeMillis(),
             durationSeconds = duration,

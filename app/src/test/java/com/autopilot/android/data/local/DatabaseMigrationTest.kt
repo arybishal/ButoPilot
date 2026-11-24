@@ -28,4 +28,32 @@ class DatabaseMigrationTest {
         assertEquals(2, migration.startVersion)
         assertEquals(3, migration.endVersion)
     }
+
+    @Test
+    fun testMigration3To4SqlSyntax() {
+        val migration = AutoPilotDatabase.MIGRATION_3_4
+        assertEquals(3, migration.startVersion)
+        assertEquals(4, migration.endVersion)
+    }
+
+    @Test
+    fun testMigration4To5SqlSyntax() {
+        val migration = AutoPilotDatabase.MIGRATION_4_5
+        assertEquals(4, migration.startVersion)
+        assertEquals(5, migration.endVersion)
+    }
+
+    @Test
+    fun testMigration5To6SqlSyntax() {
+        val migration = AutoPilotDatabase.MIGRATION_5_6
+        assertEquals(5, migration.startVersion)
+        assertEquals(6, migration.endVersion)
+    }
+
+    @Test
+    fun testMigration6To7SqlSyntax() {
+        val migration = AutoPilotDatabase.MIGRATION_6_7
+        assertEquals(6, migration.startVersion)
+        assertEquals(7, migration.endVersion)
+    }
 }

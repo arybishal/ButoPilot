@@ -9,9 +9,13 @@ enum class ExecutionMode(val displayName: String, val description: String) {
         "Deep Scroll",
         "Progressively and smoothly scrolls through the entire document depth, detecting dynamic infinite-scroll content."
     ),
+    AUTO_HUMAN_BEHAVIOUR(
+        "Auto Human Behaviour",
+        "Randomized, human-like scrolling and clicks injected after each page load."
+    ),
     TAB_SWITCHING(
         "Tab Switching",
-        "Operates across 1 to 25 virtual/physical tabs, switching focus on intervals while maintaining independent scroll/refresh states."
+        "Operates across 1 to 200 virtual/physical tabs, switching focus on intervals while maintaining independent scroll/refresh states."
     ),
     CUSTOM_JAVASCRIPT(
         "Sandboxed Custom JavaScript",
@@ -32,7 +36,7 @@ data class AutomationProfile(
     val name: String,
     val description: String = "",
     val urls: List<String>,
-    val tabCount: Int = 1, // 1 to 25
+    val tabCount: Int = 1, // 1 to 200
     val executionMode: ExecutionMode = ExecutionMode.SIMPLE_SCROLL_REFRESH,
     val refreshIntervalSec: Int = 30, // 10, 15, 20, 30, 45, 60, 90, 120
     val scrollIntervalSec: Int = 15,  // 5, 10, 15, 20, 30, 45, 60, 90, 120
@@ -41,6 +45,8 @@ data class AutomationProfile(
     val maxRefreshIntervalSec: Int = 45,
     val minScrollIntervalSec: Int = 10,
     val maxScrollIntervalSec: Int = 25,
+    val enableSpoofing: Boolean = false,
+    val enableFreeProxy: Boolean = false,
     val customScript: String? = null,
     val allowedDomains: List<String> = emptyList(),
     val userAgent: String? = null,
@@ -56,7 +62,7 @@ data class AutomationProfile(
         val VALID_REFRESH_INTERVALS = listOf(10, 15, 20, 30, 45, 60, 90, 120)
         val VALID_SCROLL_INTERVALS = listOf(5, 10, 15, 20, 30, 45, 60, 90, 120)
         const val MIN_TABS = 1
-        const val MAX_TABS = 25
+        const val MAX_TABS = 200
     }
 }
 

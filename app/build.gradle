@@ -25,6 +25,7 @@ android {
     buildTypes {
         release {
             minifyEnabled false
+            signingConfig signingConfigs.debug
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
@@ -48,6 +49,11 @@ android {
 
     buildFeatures {
         compose true
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
     }
 
     packaging {

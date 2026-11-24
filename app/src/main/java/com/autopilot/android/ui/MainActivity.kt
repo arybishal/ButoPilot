@@ -3,27 +3,57 @@ package com.autopilot.android.ui
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Traffic
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.autopilot.android.AutoPilotApplication
 import com.autopilot.android.ui.screen.*
+import com.autopilot.android.ui.theme.AppColors
 import com.autopilot.android.ui.theme.AutoPilotTheme
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+
+data class NavTabItem(
+    val title: String,
+    val icon: ImageVector,
+    val index: Int
+)
 
 class MainActivity : ComponentActivity() {
 
@@ -38,331 +68,394 @@ class MainActivity : ComponentActivity() {
         val healthChecker = app.proxyHealthChecker
         val scheduler = app.automationScheduler
         val coordinator = app.automationCoordinator
+        val diagnosticsRepository = app.diagnosticsRepository
+        val backupManager = app.backupManager
+        val restoreCoordinator = app.restoreCoordinator
+        val recoveryManager = app.recoveryManager
+        val trafficRepository = app.trafficRepository
+        val trafficController = app.trafficController
 
         setContent {
             AutoPilotTheme {
                 val navController = rememberNavController()
-                val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentRoute = navBackStackEntry?.destination?.route
 
-                val rootTabs = listOf("home", "automations", "vpn", "profile")
-                val showBottomBar = currentRoute in rootTabs
+                NavHost(
+                    navController = navController,
+                    startDestination = "root",
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    // --- 1. Root Screen with Horizontal Pager & Floating Rounded Menu ---
+                    composable("root") {
+                        val pagerState = rememberPagerState(initialPage = 0) { 5 }
+                        val coroutineScope = rememberCoroutineScope()
 
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    bottomBar = {
-                        if (showBottomBar) {
-                            NavigationBar(
-                                containerColor = Color.White,
-                                tonalElevation = 8.dp
-                            ) {
-                                // 1. Home Tab
-                                NavigationBarItem(
-                                    selected = currentRoute == "home",
-                                    onClick = {
-                                        if (currentRoute != "home") {
-                                            navController.navigate("home") {
-                                                popUpTo("home") { saveState = true }
-                                                launchSingleTop = true
-                                                restoreState = true
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            HorizontalPager(
+                                state = pagerState,
+                                modifier = Modifier.fillMaxSize()
+                            ) { page ->
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(bottom = 74.dp)
+                                ) {
+                                    when (page) {
+                                        0 -> HomeScreen(
+                                            profileRepository = profileRepository,
+                                            scheduleRepository = scheduleRepository,
+                                            coordinator = coordinator,
+                                            onNavigateToEditor = { profileId ->
+                                                navController.navigate("editor?profileId=${profileId ?: ""}")
+                                            },
+                                            onNavigateToScheduleEditor = { scheduleId ->
+                                                navController.navigate("schedule_editor?scheduleId=${scheduleId ?: ""}")
+                                            },
+                                            onNavigateToAutomationsTab = {
+                                                coroutineScope.launch { pagerState.animateScrollToPage(1) }
+                                            },
+                                            onNavigateToProfileTab = {
+                                                coroutineScope.launch { pagerState.animateScrollToPage(4) }
+                                            },
+                                            onNavigateToMonitor = {
+                                                navController.navigate("monitor")
                                             }
-                                        }
-                                    },
-                                    icon = { Icon(Icons.Filled.Home, contentDescription = "Home") },
-                                    label = {
-                                        Text(
-                                            "Home",
-                                            maxLines = 1,
-                                            softWrap = false,
-                                            fontSize = 11.sp,
-                                            fontWeight = if (currentRoute == "home") FontWeight.Bold else FontWeight.Normal
                                         )
-                                    },
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = Color(0xFF1565C0),
-                                        selectedTextColor = Color(0xFF1565C0),
-                                        indicatorColor = Color(0xFFE0F2FE),
-                                        unselectedIconColor = Color(0xFF64748B),
-                                        unselectedTextColor = Color(0xFF64748B)
-                                    )
-                                )
-
-                                // 2. Automations Tab
-                                NavigationBarItem(
-                                    selected = currentRoute == "automations",
-                                    onClick = {
-                                        if (currentRoute != "automations") {
-                                            navController.navigate("automations") {
-                                                popUpTo("home") { saveState = true }
-                                                launchSingleTop = true
-                                                restoreState = true
+                                        1 -> CreateAutomationScreen(
+                                            profileRepository = profileRepository,
+                                            coordinator = coordinator,
+                                            onNavigateBack = {
+                                                coroutineScope.launch { pagerState.animateScrollToPage(0) }
+                                            },
+                                            onNavigateToMonitor = {
+                                                navController.navigate("monitor")
+                                            },
+                                            onNavigateToSavedProfiles = {
+                                                navController.navigate("saved_profiles")
                                             }
-                                        }
-                                    },
-                                    icon = { Icon(Icons.Filled.PlayCircle, contentDescription = "Automations") },
-                                    label = {
-                                        Text(
-                                            "Automations",
-                                            maxLines = 1,
-                                            softWrap = false,
-                                            fontSize = 11.sp,
-                                            fontWeight = if (currentRoute == "automations") FontWeight.Bold else FontWeight.Normal
                                         )
-                                    },
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = Color(0xFF1565C0),
-                                        selectedTextColor = Color(0xFF1565C0),
-                                        indicatorColor = Color(0xFFE0F2FE),
-                                        unselectedIconColor = Color(0xFF64748B),
-                                        unselectedTextColor = Color(0xFF64748B)
-                                    )
-                                )
-
-                                // 3. VPN Tab
-                                NavigationBarItem(
-                                    selected = currentRoute == "vpn",
-                                    onClick = {
-                                        if (currentRoute != "vpn") {
-                                            navController.navigate("vpn") {
-                                                popUpTo("home") { saveState = true }
-                                                launchSingleTop = true
-                                                restoreState = true
+                                        2 -> ProxyRegionScreen(
+                                            proxyRepository = proxyRepository,
+                                            healthChecker = healthChecker,
+                                            onNavigateBack = {
+                                                coroutineScope.launch { pagerState.animateScrollToPage(0) }
+                                            },
+                                            onNavigateToProxyManager = {
+                                                navController.navigate("proxies")
                                             }
-                                        }
-                                    },
-                                    icon = { Icon(Icons.Filled.Public, contentDescription = "VPN") },
-                                    label = {
-                                        Text(
-                                            "VPN",
-                                            maxLines = 1,
-                                            softWrap = false,
-                                            fontSize = 11.sp,
-                                            fontWeight = if (currentRoute == "vpn") FontWeight.Bold else FontWeight.Normal
                                         )
-                                    },
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = Color(0xFF1565C0),
-                                        selectedTextColor = Color(0xFF1565C0),
-                                        indicatorColor = Color(0xFFE0F2FE),
-                                        unselectedIconColor = Color(0xFF64748B),
-                                        unselectedTextColor = Color(0xFF64748B)
-                                    )
-                                )
-
-                                // 4. Profile Tab
-                                NavigationBarItem(
-                                    selected = currentRoute == "profile",
-                                    onClick = {
-                                        if (currentRoute != "profile") {
-                                            navController.navigate("profile") {
-                                                popUpTo("home") { saveState = true }
-                                                launchSingleTop = true
-                                                restoreState = true
+                                        3 -> TrafficScreen(
+                                            repository = trafficRepository,
+                                            controller = trafficController
+                                        )
+                                        4 -> ProfileScreen(
+                                            onNavigateToHistory = {
+                                                navController.navigate("history")
+                                            },
+                                            onNavigateToSchedules = {
+                                                navController.navigate("schedules")
+                                            },
+                                            onNavigateToProxies = {
+                                                coroutineScope.launch { pagerState.animateScrollToPage(2) }
+                                            },
+                                            onNavigateToDiagnostics = {
+                                                navController.navigate("diagnostics")
+                                            },
+                                            onNavigateToBackup = {
+                                                navController.navigate("backup")
+                                            },
+                                            onNavigateToRecovery = {
+                                                navController.navigate("recovery")
                                             }
-                                        }
-                                    },
-                                    icon = { Icon(Icons.Filled.AccountCircle, contentDescription = "Profile") },
-                                    label = {
-                                        Text(
-                                            "Profile",
-                                            maxLines = 1,
-                                            softWrap = false,
-                                            fontSize = 11.sp,
-                                            fontWeight = if (currentRoute == "profile") FontWeight.Bold else FontWeight.Normal
                                         )
-                                    },
-                                    colors = NavigationBarItemDefaults.colors(
-                                        selectedIconColor = Color(0xFF1565C0),
-                                        selectedTextColor = Color(0xFF1565C0),
-                                        indicatorColor = Color(0xFFE0F2FE),
-                                        unselectedIconColor = Color(0xFF64748B),
-                                        unselectedTextColor = Color(0xFF64748B)
-                                    )
-                                )
+                                    }
+                                }
+                            }
+
+                            // Rounded Floating Navigation Dock Menu
+                            FloatingNavigationDock(
+                                pagerState = pagerState,
+                                coroutineScope = coroutineScope,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .navigationBarsPadding()
+                                    .padding(horizontal = 16.dp)
+                                    .padding(bottom = 12.dp)
+                            )
+                        }
+                    }
+
+                    // Compatibility aliases for legacy root route destinations
+                    composable("home") {
+                        LaunchedEffect(Unit) {
+                            navController.navigate("root") {
+                                popUpTo("root") { inclusive = true }
                             }
                         }
                     }
-                ) { innerPadding ->
-                    NavHost(
-                        navController = navController,
-                        startDestination = "home",
-                        modifier = Modifier.padding(innerPadding)
+                    composable("automations") {
+                        LaunchedEffect(Unit) {
+                            navController.navigate("root") {
+                                popUpTo("root") { inclusive = true }
+                            }
+                        }
+                    }
+                    composable("vpn") {
+                        LaunchedEffect(Unit) {
+                            navController.navigate("root") {
+                                popUpTo("root") { inclusive = true }
+                            }
+                        }
+                    }
+                    composable("traffic") {
+                        LaunchedEffect(Unit) {
+                            navController.navigate("root") {
+                                popUpTo("root") { inclusive = true }
+                            }
+                        }
+                    }
+                    composable("profile") {
+                        LaunchedEffect(Unit) {
+                            navController.navigate("root") {
+                                popUpTo("root") { inclusive = true }
+                            }
+                        }
+                    }
+
+                    // --- Sub-Screens ---
+                    composable("saved_profiles") {
+                        ProfileListScreen(
+                            profileRepository = profileRepository,
+                            coordinator = coordinator,
+                            onNavigateToEditor = { profileId ->
+                                navController.navigate("editor?profileId=${profileId ?: ""}")
+                            },
+                            onNavigateToMonitor = {
+                                navController.navigate("monitor")
+                            },
+                            onNavigateToHistory = {
+                                navController.navigate("history")
+                            },
+                            onNavigateToSchedules = {
+                                navController.navigate("schedules")
+                            },
+                            onNavigateToProxies = {
+                                navController.popBackStack()
+                            }
+                        )
+                    }
+
+                    composable("proxies") {
+                        ProxyListScreen(
+                            proxyRepository = proxyRepository,
+                            healthChecker = healthChecker,
+                            onNavigateBack = { navController.popBackStack() },
+                            onNavigateToEditor = { proxyId ->
+                                navController.navigate("proxy_editor?proxyId=${proxyId ?: ""}")
+                            }
+                        )
+                    }
+
+                    composable("editor?profileId={profileId}") { backStackEntry ->
+                        val profileId = backStackEntry.arguments?.getString("profileId")?.takeIf { it.isNotBlank() }
+                        CreateAutomationScreen(
+                            profileId = profileId,
+                            profileRepository = profileRepository,
+                            coordinator = coordinator,
+                            onNavigateBack = { navController.popBackStack() },
+                            onNavigateToMonitor = { navController.navigate("monitor") },
+                            onNavigateToSavedProfiles = { navController.navigate("saved_profiles") }
+                        )
+                    }
+
+                    composable("monitor") {
+                        AutomationMonitorScreen(
+                            coordinator = coordinator,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable("history") {
+                        HistoryScreen(
+                            historyRepository = historyRepository,
+                            onNavigateBack = { navController.popBackStack() },
+                            onNavigateToTroubleshooting = { executionId ->
+                                navController.navigate("troubleshooting?executionId=$executionId")
+                            }
+                        )
+                    }
+
+                    composable("diagnostics") {
+                        DiagnosticsScreen(
+                            diagnosticsRepository = diagnosticsRepository,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable("backup") {
+                        BackupScreen(
+                            backupManager = backupManager,
+                            restoreCoordinator = restoreCoordinator,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable("recovery") {
+                        RecoveryScreen(
+                            recoveryManager = recoveryManager,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable("troubleshooting?executionId={executionId}") { backStackEntry ->
+                        val executionId = backStackEntry.arguments?.getString("executionId") ?: ""
+                        ExecutionTroubleshootingScreen(
+                            executionId = executionId,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable("schedules") {
+                        ScheduleDashboardScreen(
+                            scheduleRepository = scheduleRepository,
+                            scheduler = scheduler,
+                            onNavigateBack = { navController.popBackStack() },
+                            onNavigateToEditor = { scheduleId ->
+                                navController.navigate("schedule_editor?scheduleId=${scheduleId ?: ""}")
+                            }
+                        )
+                    }
+
+                    composable("schedule_editor?scheduleId={scheduleId}") { backStackEntry ->
+                        val scheduleId = backStackEntry.arguments?.getString("scheduleId")?.takeIf { it.isNotBlank() }
+                        ScheduleEditorScreen(
+                            scheduleId = scheduleId,
+                            scheduleRepository = scheduleRepository,
+                            profileRepository = profileRepository,
+                            scheduler = scheduler,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable("proxy_editor?proxyId={proxyId}") { backStackEntry ->
+                        val proxyId = backStackEntry.arguments?.getString("proxyId")?.takeIf { it.isNotBlank() }
+                        ProxyEditorScreen(
+                            proxyId = proxyId,
+                            proxyRepository = proxyRepository,
+                            healthChecker = healthChecker,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FloatingNavigationDock(
+    pagerState: PagerState,
+    coroutineScope: CoroutineScope,
+    modifier: Modifier = Modifier
+) {
+    val navTabs = listOf(
+        NavTabItem("Home", Icons.Filled.Home, 0),
+        NavTabItem("Auto", Icons.Filled.PlayCircle, 1),
+        NavTabItem("VPN", Icons.Filled.Public, 2),
+        NavTabItem("Traffic", Icons.Filled.Traffic, 3),
+        NavTabItem("Profile", Icons.Filled.AccountCircle, 4)
+    )
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(60.dp)
+            .shadow(
+                elevation = 16.dp,
+                shape = RoundedCornerShape(30.dp),
+                spotColor = Color(0x38000000),
+                ambientColor = Color(0x1F000000)
+            ),
+        shape = RoundedCornerShape(30.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 6.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            navTabs.forEach { tab ->
+                val isSelected = pagerState.currentPage == tab.index
+
+                val animatedBgColor by animateColorAsState(
+                    targetValue = if (isSelected) AppColors.Primary else Color.Transparent,
+                    animationSpec = spring(
+                        stiffness = Spring.StiffnessMediumLow,
+                        dampingRatio = Spring.DampingRatioNoBouncy
+                    ),
+                    label = "dock_bg_${tab.index}"
+                )
+
+                val animatedIconTint by animateColorAsState(
+                    targetValue = if (isSelected) Color.Black else Color(0xFF64748B),
+                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                    label = "dock_tint_${tab.index}"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(animatedBgColor)
+                        .clickable {
+                            if (!isSelected) {
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(tab.index)
+                                }
+                            }
+                        }
+                        .padding(
+                            horizontal = if (isSelected) 14.dp else 10.dp,
+                            vertical = 8.dp
+                        )
+                        .animateContentSize(
+                            animationSpec = spring(
+                                stiffness = Spring.StiffnessMediumLow,
+                                dampingRatio = Spring.DampingRatioMediumBouncy
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
                     ) {
-                        // --- 1. Home Tab ---
-                        composable("home") {
-                            HomeScreen(
-                                profileRepository = profileRepository,
-                                scheduleRepository = scheduleRepository,
-                                coordinator = coordinator,
-                                onNavigateToEditor = { profileId ->
-                                    navController.navigate("editor?profileId=${profileId ?: ""}")
-                                },
-                                onNavigateToScheduleEditor = { scheduleId ->
-                                    navController.navigate("schedule_editor?scheduleId=${scheduleId ?: ""}")
-                                },
-                                onNavigateToAutomationsTab = {
-                                    navController.navigate("automations") {
-                                        popUpTo("home") { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                },
-                                onNavigateToProfileTab = {
-                                    navController.navigate("profile") {
-                                        popUpTo("home") { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                },
-                                onNavigateToMonitor = {
-                                    navController.navigate("monitor")
-                                }
-                            )
-                        }
+                        Icon(
+                            imageVector = tab.icon,
+                            contentDescription = tab.title,
+                            tint = animatedIconTint,
+                            modifier = Modifier.size(20.dp)
+                        )
 
-                        // --- 2. Automations Tab ---
-                        composable("automations") {
-                            CreateAutomationScreen(
-                                profileRepository = profileRepository,
-                                coordinator = coordinator,
-                                onNavigateBack = {
-                                    navController.navigate("home") {
-                                        popUpTo("home") { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                },
-                                onNavigateToMonitor = {
-                                    navController.navigate("monitor")
-                                },
-                                onNavigateToSavedProfiles = {
-                                    navController.navigate("saved_profiles")
-                                }
-                            )
-                        }
-
-                        composable("saved_profiles") {
-                            ProfileListScreen(
-                                profileRepository = profileRepository,
-                                coordinator = coordinator,
-                                onNavigateToEditor = { profileId ->
-                                    navController.navigate("editor?profileId=${profileId ?: ""}")
-                                },
-                                onNavigateToMonitor = {
-                                    navController.navigate("monitor")
-                                },
-                                onNavigateToHistory = {
-                                    navController.navigate("history")
-                                },
-                                onNavigateToSchedules = {
-                                    navController.navigate("schedules")
-                                },
-                                onNavigateToProxies = {
-                                    navController.navigate("vpn")
-                                }
-                            )
-                        }
-
-                        // --- 3. VPN Tab ---
-                        composable("vpn") {
-                            ProxyRegionScreen(
-                                proxyRepository = proxyRepository,
-                                healthChecker = healthChecker,
-                                onNavigateBack = {
-                                    navController.navigate("home") {
-                                        popUpTo("home") { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                },
-                                onNavigateToProxyManager = {
-                                    navController.navigate("proxies")
-                                }
-                            )
-                        }
-
-                        // Also keep "proxies" as route alias
-                        composable("proxies") {
-                            ProxyListScreen(
-                                proxyRepository = proxyRepository,
-                                healthChecker = healthChecker,
-                                onNavigateBack = { navController.popBackStack() },
-                                onNavigateToEditor = { proxyId ->
-                                    navController.navigate("proxy_editor?proxyId=${proxyId ?: ""}")
-                                }
-                            )
-                        }
-
-                        // --- 4. Profile Tab ---
-                        composable("profile") {
-                            ProfileScreen(
-                                onNavigateToHistory = {
-                                    navController.navigate("history")
-                                },
-                                onNavigateToSchedules = {
-                                    navController.navigate("schedules")
-                                },
-                                onNavigateToProxies = {
-                                    navController.navigate("vpn")
-                                }
-                            )
-                        }
-
-                        // --- Sub-Screens ---
-                        composable("editor?profileId={profileId}") { backStackEntry ->
-                            val profileId = backStackEntry.arguments?.getString("profileId")?.takeIf { it.isNotBlank() }
-                            ProfileEditorScreen(
-                                profileId = profileId,
-                                profileRepository = profileRepository,
-                                proxyRepository = proxyRepository,
-                                onNavigateBack = { navController.popBackStack() }
-                            )
-                        }
-
-                        composable("monitor") {
-                            AutomationMonitorScreen(
-                                coordinator = coordinator,
-                                onNavigateBack = { navController.popBackStack() }
-                            )
-                        }
-
-                        composable("history") {
-                            HistoryScreen(
-                                historyRepository = historyRepository,
-                                onNavigateBack = { navController.popBackStack() }
-                            )
-                        }
-
-                        composable("schedules") {
-                            ScheduleDashboardScreen(
-                                scheduleRepository = scheduleRepository,
-                                scheduler = scheduler,
-                                onNavigateBack = { navController.popBackStack() },
-                                onNavigateToEditor = { scheduleId ->
-                                    navController.navigate("schedule_editor?scheduleId=${scheduleId ?: ""}")
-                                }
-                            )
-                        }
-
-                        composable("schedule_editor?scheduleId={scheduleId}") { backStackEntry ->
-                            val scheduleId = backStackEntry.arguments?.getString("scheduleId")?.takeIf { it.isNotBlank() }
-                            ScheduleEditorScreen(
-                                scheduleId = scheduleId,
-                                scheduleRepository = scheduleRepository,
-                                profileRepository = profileRepository,
-                                scheduler = scheduler,
-                                onNavigateBack = { navController.popBackStack() }
-                            )
-                        }
-
-                        composable("proxy_editor?proxyId={proxyId}") { backStackEntry ->
-                            val proxyId = backStackEntry.arguments?.getString("proxyId")?.takeIf { it.isNotBlank() }
-                            ProxyEditorScreen(
-                                proxyId = proxyId,
-                                proxyRepository = proxyRepository,
-                                healthChecker = healthChecker,
-                                onNavigateBack = { navController.popBackStack() }
-                            )
+                        AnimatedVisibility(
+                            visible = isSelected,
+                            enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
+                                    expandHorizontally(spring(stiffness = Spring.StiffnessMediumLow)),
+                            exit = fadeOut(spring(stiffness = Spring.StiffnessMediumLow)) +
+                                    shrinkHorizontally(spring(stiffness = Spring.StiffnessMediumLow))
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = tab.title,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.Black,
+                                    maxLines = 1
+                                )
+                            }
                         }
                     }
                 }

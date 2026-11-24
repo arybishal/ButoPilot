@@ -1,9 +1,11 @@
 package com.autopilot.android.ui.screen
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,7 +23,8 @@ import java.util.*
 @Composable
 fun HistoryScreen(
     historyRepository: HistoryRepository,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNavigateToTroubleshooting: (executionId: String) -> Unit = {}
 ) {
     val historyItems by historyRepository.getAllHistoryFlow().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
@@ -33,7 +36,7 @@ fun HistoryScreen(
                 title = { Text("Execution History") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
@@ -76,7 +79,11 @@ fun HistoryScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(historyItems, key = { it.id }) { item ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onNavigateToTroubleshooting(item.id) }
+                    ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -118,6 +125,13 @@ fun HistoryScreen(
                                     color = MaterialTheme.colorScheme.error
                                 )
                             }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "Tap to view event timeline & diagnostics",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
                         }
                     }
                 }

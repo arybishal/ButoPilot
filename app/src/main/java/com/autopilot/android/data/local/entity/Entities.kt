@@ -21,6 +21,10 @@ data class ProfileEntity(
     val maxRefreshIntervalSec: Int,
     val minScrollIntervalSec: Int,
     val maxScrollIntervalSec: Int,
+    val enableSpoofing: Boolean = false,
+    val enableFreeProxy: Boolean = false,
+    // Kept to match the v7 schema identity; no longer used now that Auto Human Behaviour is a mode.
+    val enableHumanBehaviourScript: Boolean = false,
     val customScript: String?,
     val allowedDomainsJson: String,
     val userAgent: String?,
@@ -122,4 +126,56 @@ data class ProxySourceEntity(
     val proxyCount: Int,
     val createdAt: Long
 )
+
+@Entity(
+    tableName = "diagnostic_records",
+    indices = [
+        androidx.room.Index(value = ["category"]),
+        androidx.room.Index(value = ["timestamp"])
+    ]
+)
+data class DiagnosticRecordEntity(
+    @PrimaryKey val id: String,
+    val timestamp: Long,
+    val category: String,
+    val status: String,
+    val shortResult: String,
+    val durationMs: Long,
+    val technicalDetailsJson: String
+)
+
+@Entity(
+    tableName = "execution_events",
+    indices = [
+        androidx.room.Index(value = ["executionId"]),
+        androidx.room.Index(value = ["profileId"]),
+        androidx.room.Index(value = ["timestamp"])
+    ]
+)
+data class ExecutionEventEntity(
+    @PrimaryKey val id: String,
+    val executionId: String,
+    val profileId: String,
+    val timestamp: Long,
+    val eventType: String,
+    val errorCategory: String?,
+    val message: String
+)
+
+@Entity(
+    tableName = "backup_records",
+    indices = [
+        androidx.room.Index(value = ["timestamp"])
+    ]
+)
+data class BackupRecordEntity(
+    @PrimaryKey val id: String,
+    val timestamp: Long,
+    val filePath: String,
+    val sizeBytes: Long,
+    val isEncrypted: Boolean,
+    val itemCount: Int,
+    val status: String
+)
+
 

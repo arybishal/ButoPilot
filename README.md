@@ -1,4 +1,4 @@
-# AutoPilot: Android Automation Platform
+# ButoPilot: Advanced Android Automation & Traffic Engine
 
 [![Platform](https://img.shields.io/badge/Platform-Android_8.0+_(API_26+)-brightgreen.svg)](https://developer.android.com)
 [![Target SDK](https://img.shields.io/badge/Target_SDK-35_/_Android_15-blue.svg)](https://developer.android.com/about/versions/15)
@@ -9,7 +9,7 @@
 [![Architecture](https://img.shields.io/badge/Architecture-Clean_+_MVVM-orange.svg)](#architecture-overview)
 [![License](https://img.shields.io/badge/License-Apache_2.0-lightgrey.svg)](#license)
 
-> **AutoPilot** is an enterprise-grade, extensible, general-purpose Android automation platform built for modern Android runtimes (Android 8.0 to Android 15+ / API 26–35+). It provides isolated execution profiles, headless and visual browser automation sessions, cron-grade task scheduling, proxy and VPN tunneling, optional Magisk/libsu root integration, diagnostics, and secure backup infrastructure.
+> **ButoPilot** is an enterprise-grade, extensible, high-concurrency Android automation and web traffic platform built for modern Android runtimes (Android 8.0 to Android 15+ / API 26–35+). It features multi-tab browser concurrency (1–200 tabs), multi-automation parallel execution, instant profile cloning, 10-minute healthy proxy auto-rotation, real-browser WebView traffic generator with analytics tracking, hardware fingerprint spoofing, cron scheduling, and root-assisted survival.
 
 ---
 

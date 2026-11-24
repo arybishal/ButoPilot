@@ -1,17 +1,27 @@
 package com.autopilot.android.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
+/** Shared palette: white surfaces, black text, yellow actions. */
+object AppColors {
+    val Primary = Color(0xFFFFC107)
+    val OnPrimary = Color.Black
+    val Background = Color.White
+    val Surface = Color.White
+    val OnSurface = Color.Black
+    val Muted = Color(0xFF64748B)
+    val Border = Color(0xFFE2E8F0)
+}
+
 private val DarkColorScheme = darkColorScheme(
-    primary = Color(0xFF64B5F6),
-    onPrimary = Color(0xFF0D47A1),
-    primaryContainer = Color(0xFF1976D2),
-    onPrimaryContainer = Color(0xFFE3F2FD),
-    secondary = Color(0xFF81C784),
-    onSecondary = Color(0xFF1B5E20),
+    primary = AppColors.Primary,
+    onPrimary = AppColors.OnPrimary,
+    primaryContainer = AppColors.Primary,
+    onPrimaryContainer = AppColors.OnPrimary,
+    secondary = AppColors.Primary,
+    onSecondary = AppColors.OnPrimary,
     background = Color(0xFF121212),
     surface = Color(0xFF1E1E1E),
     onSurface = Color(0xFFE0E0E0),
@@ -19,21 +29,21 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Color(0xFF1976D2),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFBBDEFB),
-    onPrimaryContainer = Color(0xFF0D47A1),
-    secondary = Color(0xFF388E3C),
-    onSecondary = Color.White,
-    background = Color(0xFFF8F9FA),
-    surface = Color.White,
-    onSurface = Color(0xFF212121),
+    primary = AppColors.Primary,
+    onPrimary = AppColors.OnPrimary,
+    primaryContainer = Color(0xFFFFF3C4),
+    onPrimaryContainer = AppColors.OnSurface,
+    secondary = AppColors.Primary,
+    onSecondary = AppColors.OnPrimary,
+    background = AppColors.Background,
+    surface = AppColors.Surface,
+    onSurface = AppColors.OnSurface,
     error = Color(0xFFB00020)
 )
 
 @Composable
 fun AutoPilotTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colors = if (darkTheme) DarkColorScheme else LightColorScheme

@@ -72,9 +72,9 @@ This Roadmap defines the 9-phase engineering sequence (Phase 0 through Phase 8),
 | **Phase 1** | Foundation & Core Infrastructure | **Complete** | Gradle modules, Room, Hilt, Navigation Shell | Modular Android Scaffold & Data Layer |
 | **Phase 2** | Profile Management & Actions | **Complete** | Profile CRUD, 4 Automation Modes, WebView Engine | Automation Core & Browser Execution |
 | **Phase 3** | Background Execution & Scheduling | **Complete** | Room Migration v2, AlarmManager, WorkManager, UI | Background Execution & Scheduling Engine |
-| **Phase 4** | Proxy & Network Isolation | **Next** | ProxyController, health check, VpnService | Per-profile Network Tunneling Engine |
-| **Phase 5** | Diagnostics & Telemetry | **Planned** | Log viewer, timeline, screenshots, backup | Telemetry, Inspection & Backup System |
-| **Phase 6** | Root Integration (Optional Path) | **Planned** | `libsu`, iptables, root detection, hosts | Low-Level System Control Layer |
+| **Phase 4** | Proxy & Network Isolation | **Complete** | HTTP/HTTPS/SOCKS5, health check, encrypted credentials, isolation | Per-profile Network Tunneling Engine |
+| **Phase 5** | Diagnostics, Backup & Data Recovery | **Complete** | Diagnostics Center, event tracking, .autopilot backup, self-healing recovery | 86/86 Passing Tests, LDPlayer Verified |
+| **Phase 6** | Root Integration (Optional Path) | **Next** | `libsu`, iptables, root detection, hosts | Low-Level System Control Layer |
 | **Phase 7** | Hardening & Release Candidate | **Planned** | Security audit, profiling, R8, RC builds | Production Signed Release Candidate |
 
 ---

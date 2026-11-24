@@ -111,6 +111,8 @@ class ProfileRepositoryImpl(
             maxRefreshIntervalSec = maxRefreshIntervalSec,
             minScrollIntervalSec = minScrollIntervalSec,
             maxScrollIntervalSec = maxScrollIntervalSec,
+            enableSpoofing = enableSpoofing,
+            enableFreeProxy = enableFreeProxy,
             customScript = customScript,
             allowedDomains = allowedDomains,
             userAgent = userAgent,
@@ -139,6 +141,8 @@ class ProfileRepositoryImpl(
             maxRefreshIntervalSec = maxRefreshIntervalSec,
             minScrollIntervalSec = minScrollIntervalSec,
             maxScrollIntervalSec = maxScrollIntervalSec,
+            enableSpoofing = enableSpoofing,
+            enableFreeProxy = enableFreeProxy,
             customScript = customScript,
             allowedDomainsJson = gson.toJson(allowedDomains),
             userAgent = userAgent,
@@ -335,6 +339,7 @@ interface ProxyRepository {
     suspend fun saveProxy(proxy: ProxyConfiguration)
     suspend fun saveProxies(proxies: List<ProxyConfiguration>)
     suspend fun deleteProxy(id: String)
+    suspend fun deleteUnhealthyProxies(): Int
     suspend fun updateHealthStatus(id: String, status: ProxyHealthStatus, latencyMs: Long?, error: String?)
     suspend fun updateEnabled(id: String, enabled: Boolean)
     fun getAllSourcesFlow(): Flow<List<ProxySource>>
@@ -383,6 +388,10 @@ class ProxyRepositoryImpl(
 
     override suspend fun deleteProxy(id: String) {
         proxyDao.deleteById(id)
+    }
+
+    override suspend fun deleteUnhealthyProxies(): Int {
+        return proxyDao.deleteUnhealthy()
     }
 
     override suspend fun updateHealthStatus(

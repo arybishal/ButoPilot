@@ -13,7 +13,7 @@ class ResourceManager(private val context: Context) {
 
     companion object {
         const val MAX_GLOBAL_CONCURRENT_TASKS = 2
-        const val MAX_GLOBAL_ACTIVE_TABS = 25
+        const val MAX_GLOBAL_ACTIVE_TABS = 200
         const val LOW_MEMORY_THRESHOLD_MB = 150
     }
 

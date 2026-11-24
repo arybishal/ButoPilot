@@ -30,6 +30,9 @@ interface ProfileDao {
 
     @Query("UPDATE automation_profiles SET status = :status, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateStatus(id: String, status: String, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("DELETE FROM automation_profiles")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -37,11 +40,17 @@ interface ExecutionHistoryDao {
     @Query("SELECT * FROM execution_history ORDER BY startedAt DESC")
     fun getAllFlow(): Flow<List<ExecutionHistoryEntity>>
 
+    @Query("SELECT * FROM execution_history ORDER BY startedAt DESC")
+    suspend fun getAll(): List<ExecutionHistoryEntity>
+
     @Query("SELECT * FROM execution_history WHERE profileId = :profileId ORDER BY startedAt DESC")
     fun getForProfile(profileId: String): Flow<List<ExecutionHistoryEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(item: ExecutionHistoryEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(items: List<ExecutionHistoryEntity>)
 
     @Query("DELETE FROM execution_history WHERE id = :id")
     suspend fun deleteById(id: String)
@@ -94,6 +103,9 @@ interface ScheduleDao {
 
     @Query("UPDATE automation_schedules SET enabled = :enabled, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateEnabled(id: String, enabled: Boolean, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("DELETE FROM automation_schedules")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -128,6 +140,9 @@ interface ProxyDao {
     @Query("DELETE FROM proxy_configurations WHERE id = :id")
     suspend fun deleteById(id: String)
 
+    @Query("DELETE FROM proxy_configurations WHERE lastHealthStatus IN ('UNHEALTHY', 'TIMEOUT', 'AUTH_FAILURE')")
+    suspend fun deleteUnhealthy(): Int
+
     @Query("UPDATE proxy_configurations SET lastHealthStatus = :status, lastLatencyMs = :latencyMs, lastTestedAt = :testedAt, lastErrorMessage = :error, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateHealthStatus(
         id: String,
@@ -156,3 +171,94 @@ interface ProxySourceDao {
     @Query("DELETE FROM proxy_sources WHERE id = :id")
     suspend fun deleteById(id: String)
 }
+
+@Dao
+interface DiagnosticDao {
+    @Query("SELECT * FROM diagnostic_records ORDER BY timestamp DESC")
+    fun getAllFlow(): Flow<List<com.autopilot.android.data.local.entity.DiagnosticRecordEntity>>
+
+    @Query("SELECT * FROM diagnostic_records ORDER BY timestamp DESC")
+    suspend fun getAll(): List<com.autopilot.android.data.local.entity.DiagnosticRecordEntity>
+
+    @Query("SELECT * FROM diagnostic_records WHERE category = :category ORDER BY timestamp DESC")
+    suspend fun getByCategory(category: String): List<com.autopilot.android.data.local.entity.DiagnosticRecordEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(record: com.autopilot.android.data.local.entity.DiagnosticRecordEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(records: List<com.autopilot.android.data.local.entity.DiagnosticRecordEntity>)
+
+    @Query("DELETE FROM diagnostic_records WHERE timestamp < :cutoffTimestamp")
+    suspend fun deleteOlderThan(cutoffTimestamp: Long): Int
+
+    @Query("DELETE FROM diagnostic_records")
+    suspend fun clearAll()
+}
+
+@Dao
+interface ExecutionEventDao {
+    @Query("SELECT * FROM execution_events WHERE executionId = :executionId ORDER BY timestamp ASC")
+    fun getEventsForExecutionFlow(executionId: String): Flow<List<com.autopilot.android.data.local.entity.ExecutionEventEntity>>
+
+    @Query("SELECT * FROM execution_events WHERE executionId = :executionId ORDER BY timestamp ASC")
+    suspend fun getEventsForExecution(executionId: String): List<com.autopilot.android.data.local.entity.ExecutionEventEntity>
+
+    @Query("SELECT * FROM execution_events WHERE profileId = :profileId ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun getRecentEventsForProfile(profileId: String, limit: Int = 100): List<com.autopilot.android.data.local.entity.ExecutionEventEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(event: com.autopilot.android.data.local.entity.ExecutionEventEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(events: List<com.autopilot.android.data.local.entity.ExecutionEventEntity>)
+
+    @Query("DELETE FROM execution_events WHERE timestamp < :cutoffTimestamp")
+    suspend fun deleteOlderThan(cutoffTimestamp: Long): Int
+
+    @Query("DELETE FROM execution_events WHERE executionId = :executionId")
+    suspend fun deleteForExecution(executionId: String)
+
+    @Query("DELETE FROM execution_events")
+    suspend fun clearAll()
+}
+
+@Dao
+interface TrafficDao {
+    @Query("SELECT * FROM traffic_runs ORDER BY createdAt DESC")
+    fun getAllFlow(): Flow<List<com.autopilot.android.data.local.entity.TrafficRunEntity>>
+
+    @Query("SELECT * FROM traffic_runs WHERE id = :id")
+    suspend fun getById(id: String): com.autopilot.android.data.local.entity.TrafficRunEntity?
+
+    @Query("SELECT * FROM traffic_runs WHERE status IN ('QUEUED', 'RUNNING', 'PAUSED', 'INTERRUPTED') ORDER BY createdAt ASC")
+    suspend fun getActive(): List<com.autopilot.android.data.local.entity.TrafficRunEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(run: com.autopilot.android.data.local.entity.TrafficRunEntity)
+
+    @Update
+    suspend fun update(run: com.autopilot.android.data.local.entity.TrafficRunEntity)
+
+    @Query("DELETE FROM traffic_runs WHERE id = :id")
+    suspend fun delete(id: String)
+}
+
+@Dao
+interface BackupRecordDao {
+    @Query("SELECT * FROM backup_records ORDER BY timestamp DESC")
+    fun getAllFlow(): Flow<List<com.autopilot.android.data.local.entity.BackupRecordEntity>>
+
+    @Query("SELECT * FROM backup_records ORDER BY timestamp DESC")
+    suspend fun getAll(): List<com.autopilot.android.data.local.entity.BackupRecordEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(record: com.autopilot.android.data.local.entity.BackupRecordEntity)
+
+    @Query("DELETE FROM backup_records WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM backup_records")
+    suspend fun clearAll()
+}
+

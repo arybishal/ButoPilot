@@ -135,7 +135,7 @@ fun ProxyRegionScreen(
                         text = "Proxy Region",
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0F172A)
+                        color = Color.Black
                     )
                 },
                 navigationIcon = {
@@ -143,7 +143,7 @@ fun ProxyRegionScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
-                            tint = Color(0xFF0F172A)
+                            tint = Color.Black
                         )
                     }
                 },
@@ -164,7 +164,7 @@ fun ProxyRegionScreen(
                         Icon(
                             imageVector = Icons.Filled.Refresh,
                             contentDescription = "Refresh",
-                            tint = Color(0xFF0F172A)
+                            tint = Color.Black
                         )
                     }
                 },
@@ -200,13 +200,13 @@ fun ProxyRegionScreen(
                             modifier = Modifier
                                 .size(48.dp)
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(Color(0xFFE0F2FE)),
+                                .background(Color(0xFFFFF3C4)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Shield,
                                 contentDescription = null,
-                                tint = Color(0xFF1565C0),
+                                tint = Color.Black,
                                 modifier = Modifier.size(24.dp)
                             )
                         }
@@ -218,7 +218,7 @@ fun ProxyRegionScreen(
                                 text = "$healthyProxies healthy / $totalProxies total",
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF0F172A)
+                                color = Color.Black
                             )
                             Spacer(modifier = Modifier.height(3.dp))
                             Text(
@@ -255,7 +255,7 @@ fun ProxyRegionScreen(
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White),
                     border = if (isSelected) {
-                        BorderStroke(2.dp, Color(0xFF1565C0))
+                        BorderStroke(2.dp, Color.Black)
                     } else {
                         BorderStroke(1.dp, Color(0xFFE2E8F0))
                     },
@@ -298,7 +298,7 @@ fun ProxyRegionScreen(
                                         text = item.displayName,
                                         fontSize = 17.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF0F172A)
+                                        color = Color.Black
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                 }
@@ -315,7 +315,7 @@ fun ProxyRegionScreen(
                             Icon(
                                 imageVector = Icons.Filled.CheckCircle,
                                 contentDescription = "Selected",
-                                tint = Color(0xFF1565C0),
+                                tint = Color.Black,
                                 modifier = Modifier.size(24.dp)
                             )
                         }
@@ -335,7 +335,7 @@ fun ProxyRegionScreen(
                     TextButton(onClick = onNavigateToProxyManager) {
                         Text(
                             text = "Manage All Proxies & Import List →",
-                            color = Color(0xFF1565C0),
+                            color = Color.Black,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold
                         )

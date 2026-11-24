@@ -46,6 +46,8 @@ fun ProfileEditorScreen(
     var allowedDomainsText by remember { mutableStateOf("") }
     var clearCookies by remember { mutableStateOf(false) }
     var clearCache by remember { mutableStateOf(false) }
+    var enableSpoofing by remember { mutableStateOf(false) }
+    var enableFreeProxy by remember { mutableStateOf(false) }
     var selectedProxyId by remember { mutableStateOf<String?>(null) }
     var isLoaded by remember { mutableStateOf(false) }
 
@@ -56,7 +58,7 @@ fun ProfileEditorScreen(
                 name = existing.name
                 description = existing.description
                 urlsText = existing.urls.joinToString("\n")
-                tabCount = existing.tabCount.toFloat()
+                tabCount = existing.tabCount.toFloat().coerceIn(1f, 200f)
                 selectedMode = existing.executionMode
                 refreshIntervalSec = existing.refreshIntervalSec
                 scrollIntervalSec = existing.scrollIntervalSec
@@ -65,6 +67,8 @@ fun ProfileEditorScreen(
                 maxRefreshSec = existing.maxRefreshIntervalSec
                 minScrollSec = existing.minScrollIntervalSec
                 maxScrollSec = existing.maxScrollIntervalSec
+                enableSpoofing = existing.enableSpoofing
+                enableFreeProxy = existing.enableFreeProxy
                 customScript = existing.customScript ?: ""
                 allowedDomainsText = existing.allowedDomains.joinToString(", ")
                 clearCookies = existing.clearCookiesOnStart
@@ -107,6 +111,8 @@ fun ProfileEditorScreen(
                                 maxRefreshIntervalSec = maxRefreshSec,
                                 minScrollIntervalSec = minScrollSec,
                                 maxScrollIntervalSec = maxScrollSec,
+                                enableSpoofing = enableSpoofing,
+                                enableFreeProxy = enableFreeProxy,
                                 customScript = customScript.takeIf { it.isNotBlank() },
                                 allowedDomains = allowedDomains,
                                 clearCookiesOnStart = clearCookies,
@@ -181,7 +187,7 @@ fun ProfileEditorScreen(
 
             Divider()
 
-            // Section 3: 1 to 25 Configurable Tabs
+            // Section 3: 1 to 200 Configurable Tabs
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -192,19 +198,40 @@ fun ProfileEditorScreen(
             }
             Slider(
                 value = tabCount,
-                onValueChange = { tabCount = it },
-                valueRange = 1f..25f,
-                steps = 23
+                onValueChange = { tabCount = it.coerceIn(1f, 200f) },
+                valueRange = 1f..200f
             )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("1 tab", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                Text("200 tabs", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
             Text(
-                "AutoPilot will maintain ${tabCount.toInt()} isolated browser sessions simultaneously.",
+                "AutoPilot will maintain ${tabCount.toInt()} isolated browser sessions simultaneously (up to 200 tabs).",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline
             )
 
             Divider()
 
-            // Section 4: Four Execution Modes
+            // Device Info Spoofing (Root)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Enable Device Info Spoofing (Root)", fontWeight = FontWeight.SemiBold)
+                    Text("Requires root access to spoof hardware and build props", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+                Switch(checked = enableSpoofing, onCheckedChange = { enableSpoofing = it })
+            }
+
+            Divider()
+
+            // Section 4: Execution Modes (mutually exclusive)
             Text("Execution Mode", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             ExecutionMode.values().forEach { mode ->
                 Card(
@@ -354,6 +381,18 @@ fun ProfileEditorScreen(
 
             // Section 8: Network Isolation & Proxy Selection
             Text("Network Isolation & Proxy", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Enable Free Proxy", fontWeight = FontWeight.SemiBold)
+                    Text("Automatically route through available free public proxies", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                }
+                Switch(checked = enableFreeProxy, onCheckedChange = { enableFreeProxy = it })
+            }
 
             val isConfiguredProxyMissing = selectedProxyId != null && proxies.none { it.id == selectedProxyId }
             if (isConfiguredProxyMissing) {

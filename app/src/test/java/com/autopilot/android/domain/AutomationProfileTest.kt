@@ -28,23 +28,24 @@ class AutomationProfileTest {
     @Test
     fun profile_tabCountBoundaries() {
         assertTrue(AutomationProfile.MIN_TABS == 1)
-        assertTrue(AutomationProfile.MAX_TABS == 25)
+        assertTrue(AutomationProfile.MAX_TABS == 200)
 
-        val profile25Tabs = AutomationProfile(
-            id = "test-25",
+        val profile200Tabs = AutomationProfile(
+            id = "test-200",
             name = "Multi Tab Profile",
-            urls = (1..25).map { "https://site$it.com" },
-            tabCount = 25
+            urls = (1..200).map { "https://site$it.com" },
+            tabCount = 200
         )
-        assertEquals(25, profile25Tabs.tabCount)
-        assertEquals(25, profile25Tabs.urls.size)
+        assertEquals(200, profile200Tabs.tabCount)
+        assertEquals(200, profile200Tabs.urls.size)
     }
 
     @Test
     fun profile_allExecutionModesAvailable() {
-        assertEquals(4, ExecutionMode.values().size)
+        assertEquals(5, ExecutionMode.values().size)
         assertTrue(ExecutionMode.values().contains(ExecutionMode.SIMPLE_SCROLL_REFRESH))
         assertTrue(ExecutionMode.values().contains(ExecutionMode.DEEP_SCROLL))
+        assertTrue(ExecutionMode.values().contains(ExecutionMode.AUTO_HUMAN_BEHAVIOUR))
         assertTrue(ExecutionMode.values().contains(ExecutionMode.TAB_SWITCHING))
         assertTrue(ExecutionMode.values().contains(ExecutionMode.CUSTOM_JAVASCRIPT))
     }

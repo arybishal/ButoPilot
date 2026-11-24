@@ -4,15 +4,29 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
+import com.autopilot.android.core.system.DeviceSpoofManager
+import com.autopilot.android.core.system.SharedPrefsSpoofSnapshotStore
+import com.autopilot.android.core.system.SuShellRunner
 import com.autopilot.android.data.local.AutoPilotDatabase
 import com.autopilot.android.data.repository.*
 import com.autopilot.android.domain.model.ProfileStatus
 import com.autopilot.android.engine.AutomationCoordinator
+import com.autopilot.android.feature.backup.BackupManager
+import com.autopilot.android.feature.backup.BackupPreferences
+import com.autopilot.android.feature.backup.RestoreCoordinator
+import com.autopilot.android.feature.backup.worker.AutoBackupWorker
+import com.autopilot.android.feature.diagnostics.DiagnosticsRepository
+import com.autopilot.android.feature.diagnostics.DiagnosticsRepositoryImpl
+import com.autopilot.android.feature.diagnostics.execution.ExecutionEventTracker
 import com.autopilot.android.feature.proxy.ProxyExecutionCoordinator
 import com.autopilot.android.feature.proxy.ProxyHealthChecker
+import com.autopilot.android.feature.recovery.RecoveryManager
 import com.autopilot.android.feature.scheduling.notification.ScheduleNotificationManager
 import com.autopilot.android.feature.scheduling.service.AutomationScheduler
 import com.autopilot.android.feature.scheduling.worker.ScheduleReconciliationWorker
+import com.autopilot.android.feature.traffic.TrafficController
+import com.autopilot.android.feature.traffic.TrafficExecutor
+import com.autopilot.android.data.repository.TrafficRepositoryImpl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -53,7 +67,34 @@ class AutoPilotApplication : Application() {
     lateinit var proxyHealthChecker: ProxyHealthChecker
         private set
 
+    lateinit var diagnosticsRepository: DiagnosticsRepository
+        private set
+
+    lateinit var executionEventTracker: ExecutionEventTracker
+        private set
+
+    lateinit var backupManager: BackupManager
+        private set
+
+    lateinit var restoreCoordinator: RestoreCoordinator
+        private set
+
+    lateinit var recoveryManager: RecoveryManager
+        private set
+
     lateinit var automationCoordinator: AutomationCoordinator
+        private set
+
+    lateinit var deviceSpoofManager: DeviceSpoofManager
+        private set
+
+    lateinit var trafficRepository: com.autopilot.android.data.repository.TrafficRepository
+        private set
+
+    lateinit var trafficExecutor: TrafficExecutor
+        private set
+
+    lateinit var trafficController: TrafficController
         private set
 
     override fun onCreate() {
@@ -63,19 +104,45 @@ class AutoPilotApplication : Application() {
         database = AutoPilotDatabase.getInstance(this)
         profileRepository = ProfileRepositoryImpl(database.profileDao())
         historyRepository = HistoryRepositoryImpl(database.executionHistoryDao())
+        trafficRepository = TrafficRepositoryImpl(database.trafficDao())
         scheduleRepository = ScheduleRepositoryImpl(database.scheduleDao())
         proxyRepository = ProxyRepositoryImpl(database.proxyDao(), database.proxySourceDao())
 
         proxyExecutionCoordinator = ProxyExecutionCoordinator()
         proxyHealthChecker = ProxyHealthChecker()
+        trafficExecutor = TrafficExecutor(trafficRepository, context = this)
+        trafficController = TrafficController(this, trafficRepository)
 
+        diagnosticsRepository = DiagnosticsRepositoryImpl(database.diagnosticDao())
+        executionEventTracker = ExecutionEventTracker(database.executionEventDao())
+        backupManager = BackupManager(this, database, database.backupRecordDao())
+        restoreCoordinator = RestoreCoordinator(this, database, backupManager)
+
+        deviceSpoofManager = DeviceSpoofManager(
+            shell = SuShellRunner(),
+            snapshots = SharedPrefsSpoofSnapshotStore(this)
+        )
         automationCoordinator = AutomationCoordinator(
             context = this,
             profileRepository = profileRepository,
             historyRepository = historyRepository,
             proxyRepository = proxyRepository,
-            proxyExecutionCoordinator = proxyExecutionCoordinator
+            proxyExecutionCoordinator = proxyExecutionCoordinator,
+            eventTracker = executionEventTracker,
+            deviceSpoofManager = deviceSpoofManager,
+            proxyHealthChecker = proxyHealthChecker
         )
+
+        recoveryManager = RecoveryManager(
+            context = this,
+            database = database,
+            profileRepository = profileRepository,
+            scheduleRepository = scheduleRepository,
+            proxyRepository = proxyRepository,
+            proxyExecutionCoordinator = proxyExecutionCoordinator,
+            coordinator = automationCoordinator
+        )
+
         automationScheduler = AutomationScheduler(this)
         scheduleNotificationManager = ScheduleNotificationManager(this)
 
@@ -84,10 +151,19 @@ class AutoPilotApplication : Application() {
         // Enqueue WorkManager periodic background reconciliation
         ScheduleReconciliationWorker.enqueuePeriodic(this)
 
+        // Enqueue WorkManager periodic automatic backups according to user preferences
+        val backupPrefs = BackupPreferences(this).getSettings()
+        AutoBackupWorker.schedule(this, backupPrefs)
+
         // Process death recovery: reset lingering proxy routing and reconcile stale RUNNING profiles to IDLE
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 proxyExecutionCoordinator.resetAndRelease()
+            } catch (e: Exception) {
+                // Ignore during init
+            }
+            try {
+                deviceSpoofManager.restore()
             } catch (e: Exception) {
                 // Ignore during init
             }
@@ -99,6 +175,7 @@ class AutoPilotApplication : Application() {
             } catch (e: Exception) {
                 // Ignore during init
             }
+            trafficController.resumeActiveRuns()
         }
     }
 

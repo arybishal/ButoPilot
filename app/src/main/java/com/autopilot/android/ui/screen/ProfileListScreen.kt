@@ -35,12 +35,28 @@ fun ProfileListScreen(
     val engineState by coordinator.engineState.collectAsState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    var isMultiSelectMode by remember { mutableStateOf(false) }
+    var selectedProfileIds by remember { mutableStateOf(setOf<String>()) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("AutoPilot Profiles", fontWeight = FontWeight.Bold) },
                 actions = {
+                    if (profiles.isNotEmpty()) {
+                        IconButton(
+                            onClick = {
+                                isMultiSelectMode = !isMultiSelectMode
+                                if (!isMultiSelectMode) selectedProfileIds = emptySet()
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Layers,
+                                contentDescription = "Multi-Run",
+                                tint = if (isMultiSelectMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
                     if (engineState.status != ProfileStatus.IDLE) {
                         IconButton(onClick = onNavigateToMonitor) {
                             Icon(
@@ -113,9 +129,57 @@ fun ProfileListScreen(
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                if (isMultiSelectMode) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${selectedProfileIds.size} of ${profiles.size} Selected",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    TextButton(
+                                        onClick = {
+                                            selectedProfileIds = if (selectedProfileIds.size == profiles.size) emptySet() else profiles.map { it.id }.toSet()
+                                        }
+                                    ) {
+                                        Text(if (selectedProfileIds.size == profiles.size) "Deselect" else "Select All")
+                                    }
+                                    Button(
+                                        onClick = {
+                                            val targets = profiles.filter { it.id in selectedProfileIds }
+                                            if (targets.isNotEmpty()) {
+                                                coordinator.startMultiple(targets)
+                                                onNavigateToMonitor()
+                                            }
+                                        },
+                                        enabled = selectedProfileIds.isNotEmpty()
+                                    ) {
+                                        Text("Run (${selectedProfileIds.size})")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 items(profiles, key = { it.id }) { profile ->
-                    val isRunning = engineState.status == ProfileStatus.RUNNING && engineState.profile?.id == profile.id
-                    val isPaused = engineState.status == ProfileStatus.PAUSED && engineState.profile?.id == profile.id
+                    val isRunning = (engineState.status == ProfileStatus.RUNNING &&
+                        (engineState.profile?.id == profile.id || engineState.activeProfiles.any { it.id == profile.id }))
+                    val isPaused = (engineState.status == ProfileStatus.PAUSED &&
+                        (engineState.profile?.id == profile.id || engineState.activeProfiles.any { it.id == profile.id }))
 
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -130,11 +194,25 @@ fun ProfileListScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = profile.name,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    if (isMultiSelectMode) {
+                                        Checkbox(
+                                            checked = selectedProfileIds.contains(profile.id),
+                                            onCheckedChange = { checked ->
+                                                selectedProfileIds = if (checked) selectedProfileIds + profile.id else selectedProfileIds - profile.id
+                                            },
+                                            modifier = Modifier.padding(end = 4.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = profile.name,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
 
                                 Surface(
                                     shape = MaterialTheme.shapes.small,
