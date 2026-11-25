@@ -41,11 +41,14 @@ class WebViewManager(
     private val _activeTabIndex = MutableStateFlow(0)
     val activeTabIndex: StateFlow<Int> = _activeTabIndex.asStateFlow()
 
+    private val _activeWebView = MutableStateFlow<WebView?>(null)
+    val activeWebView: StateFlow<WebView?> = _activeWebView.asStateFlow()
+
     /**
      * Initializes a tab WebView with proper security and engine settings.
      */
     fun createOrGetTab(tabIndex: Int, profile: AutomationProfile): WebView {
-        return webViewMap.getOrPut(tabIndex) {
+        val webView = webViewMap.getOrPut(tabIndex) {
             val webView = WebView(context).apply {
                 visibility = View.VISIBLE
                 settings.apply {
@@ -265,10 +268,13 @@ class WebViewManager(
             )
             webView
         }
+        if (tabIndex == _activeTabIndex.value) _activeWebView.value = webView
+        return webView
     }
 
     fun selectTab(tabIndex: Int) {
         _activeTabIndex.value = tabIndex
+        _activeWebView.value = webViewMap[tabIndex]
     }
 
     fun getWebView(tabIndex: Int): WebView? = webViewMap[tabIndex]
@@ -372,6 +378,7 @@ class WebViewManager(
             navigationTimeoutMap.clear()
             webViewMap.forEach { (index, wv) ->
                 try {
+                    (wv.parent as? android.view.ViewGroup)?.removeView(wv)
                     wv.stopLoading()
                     wv.clearHistory()
                     wv.removeAllViews()
@@ -382,6 +389,7 @@ class WebViewManager(
             }
             webViewMap.clear()
             tabStateMap.clear()
+            _activeWebView.value = null
         }
     }
 }

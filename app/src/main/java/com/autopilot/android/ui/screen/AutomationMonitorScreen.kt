@@ -23,10 +23,12 @@ import androidx.compose.ui.platform.LocalContext
 @Composable
 fun AutomationMonitorScreen(
     coordinator: AutomationCoordinator,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onPreviewTab: (Int) -> Unit
 ) {
     val engineState by coordinator.engineState.collectAsState()
     val activeTab by coordinator.webViewManager.activeTabIndex.collectAsState()
+    val activeWebView by coordinator.webViewManager.activeWebView.collectAsState()
     val context = LocalContext.current
 
     Scaffold(
@@ -44,6 +46,9 @@ fun AutomationMonitorScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { onPreviewTab(activeTab) }) {
+                        Icon(Icons.Default.Fullscreen, contentDescription = "Preview full screen")
+                    }
                     Surface(
                         shape = MaterialTheme.shapes.small,
                         color = when (engineState.status) {
@@ -222,28 +227,38 @@ fun AutomationMonitorScreen(
                     .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.Center
             ) {
-                if (engineState.status != ProfileStatus.IDLE) {
-                    AndroidView(
-                        modifier = Modifier.fillMaxSize(),
-                        factory = { ctx ->
-                            FrameLayout(ctx).apply {
-                                layoutParams = ViewGroup.LayoutParams(
-                                    ViewGroup.LayoutParams.MATCH_PARENT,
-                                    ViewGroup.LayoutParams.MATCH_PARENT
-                                )
-                            }
-                        },
-                        update = { container ->
-                            container.removeAllViews()
-                            val activeWv = coordinator.webViewManager.getActiveWebView()
-                            if (activeWv != null) {
-                                (activeWv.parent as? ViewGroup)?.removeView(activeWv)
-                                container.addView(activeWv)
-                            }
+                when {
+                    engineState.status == ProfileStatus.IDLE ->
+                        Text("Automation idle. Start a profile to preview browser execution.", color = MaterialTheme.colorScheme.outline)
+                    activeWebView == null ->
+                        Text("Waiting for the first browser tab to load...", color = MaterialTheme.colorScheme.outline)
+                    else -> {
+                        val webView = activeWebView!!
+                        key(webView) {
+                            AndroidView(
+                                modifier = Modifier.fillMaxSize(),
+                                factory = { ctx ->
+                                    FrameLayout(ctx).apply {
+                                        layoutParams = ViewGroup.LayoutParams(
+                                            ViewGroup.LayoutParams.MATCH_PARENT,
+                                            ViewGroup.LayoutParams.MATCH_PARENT
+                                        )
+                                    }
+                                },
+                                update = { container ->
+                                    if (container.getChildAt(0) != webView) {
+                                        container.removeAllViews()
+                                        (webView.parent as? ViewGroup)?.removeView(webView)
+                                        container.addView(
+                                            webView,
+                                            ViewGroup.LayoutParams.MATCH_PARENT,
+                                            ViewGroup.LayoutParams.MATCH_PARENT
+                                        )
+                                    }
+                                }
+                            )
                         }
-                    )
-                } else {
-                    Text("Automation idle. Start a profile to preview browser execution.", color = MaterialTheme.colorScheme.outline)
+                    }
                 }
             }
 

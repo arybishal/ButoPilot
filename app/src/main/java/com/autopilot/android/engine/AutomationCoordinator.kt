@@ -510,11 +510,26 @@ class AutomationCoordinator(
 
     private suspend fun ensureProxyForRun(profile: AutomationProfile): Boolean {
         val repo = proxyRepository ?: return true
-        if (proxyExecutionCoordinator == null) return true
-        val configured = profile.proxyId?.takeIf { it.isNotBlank() }?.let { repo.getProxyById(it) }
-        val candidate = configured ?: obtainHealthyFreeProxy() ?: return false
-        if (!candidate.enabled) return false
-        return applyVerifiedProxy(candidate)
+        val coordinator = proxyExecutionCoordinator ?: return true
+        val configuredId = profile.proxyId?.takeIf { it.isNotBlank() }
+
+        if (configuredId != null) {
+            // An explicitly chosen proxy must work; never leak its session over the device connection.
+            val configured = repo.getProxyById(configuredId)
+            if (configured == null || !configured.enabled || !applyVerifiedProxy(configured)) return false
+            return true
+        }
+
+        val freeProxy = if (profile.enableFreeProxy) obtainHealthyFreeProxy() else null
+        if (freeProxy != null && applyVerifiedProxy(freeProxy)) return true
+
+        coordinator.acquireAndApply(null)
+        _engineState.value = _engineState.value.copy(
+            statusMessage = "No verified proxy available; running with direct connection (location not masked).",
+            currentProxyName = null,
+            currentProxyLocation = null
+        )
+        return true
     }
 
     /**

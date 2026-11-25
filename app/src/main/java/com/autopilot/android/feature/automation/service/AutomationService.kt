@@ -17,6 +17,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.dropWhile
 import kotlinx.coroutines.launch
 
 class AutomationService : Service() {
@@ -118,7 +119,7 @@ class AutomationService : Service() {
         val app = application as AutoPilotApplication
         observerJob?.cancel()
         observerJob = serviceScope.launch {
-            app.automationCoordinator.engineState.collectLatest { state ->
+            app.automationCoordinator.engineState.dropWhile { it.status == ProfileStatus.IDLE }.collectLatest { state ->
                 if (state.status == ProfileStatus.IDLE) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()

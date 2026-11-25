@@ -301,6 +301,16 @@ class MainActivity : ComponentActivity() {
                     composable("monitor") {
                         AutomationMonitorScreen(
                             coordinator = coordinator,
+                            onNavigateBack = { navController.popBackStack() },
+                            onPreviewTab = { tabIndex -> navController.navigate("preview/$tabIndex") }
+                        )
+                    }
+
+                    composable("preview/{tabIndex}") { backStackEntry ->
+                        val tabIndex = backStackEntry.arguments?.getInt("tabIndex") ?: 0
+                        WebPreviewScreen(
+                            coordinator = coordinator,
+                            tabIndex = tabIndex,
                             onNavigateBack = { navController.popBackStack() }
                         )
                     }
