@@ -114,8 +114,14 @@ class AutoPilotApplication : Application() {
         proxyRepository = ProxyRepositoryImpl(database.proxyDao(), database.proxySourceDao())
 
         proxyExecutionCoordinator = ProxyExecutionCoordinator()
-        proxyHealthChecker = ProxyHealthChecker()
-        trafficExecutor = TrafficExecutor(trafficRepository, context = this)
+        proxyHealthChecker = ProxyHealthChecker(verifyExit = true)
+        trafficExecutor = TrafficExecutor(
+            trafficRepository,
+            context = this,
+            proxyRepository = proxyRepository,
+            proxyHealthChecker = proxyHealthChecker,
+            proxyExecutionCoordinator = proxyExecutionCoordinator
+        )
         trafficController = TrafficController(this, trafficRepository)
 
         diagnosticsRepository = DiagnosticsRepositoryImpl(database.diagnosticDao())

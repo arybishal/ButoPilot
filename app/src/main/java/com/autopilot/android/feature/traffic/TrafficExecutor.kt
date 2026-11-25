@@ -7,7 +7,13 @@ import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import com.autopilot.android.data.repository.ProxyRepository
 import com.autopilot.android.data.repository.TrafficRepository
+import com.autopilot.android.domain.model.proxy.ProxyConfiguration
+import com.autopilot.android.domain.model.proxy.ProxyHealthStatus
+import com.autopilot.android.domain.model.proxy.ProxyProtocol
+import com.autopilot.android.feature.proxy.ProxyExecutionCoordinator
+import com.autopilot.android.feature.proxy.ProxyHealthChecker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -19,9 +25,15 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.Authenticator
+import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
+import okhttp3.Route
 import java.io.IOException
+import java.net.InetSocketAddress
 import java.net.URI
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -57,10 +69,93 @@ private data class Attempt(val success: Boolean, val error: String? = null, val 
 class TrafficExecutor(
     private val repository: TrafficRepository,
     private val context: Context? = null,
-    private val client: OkHttpClient = createClient()
+    private val client: OkHttpClient = createClient(),
+    private val proxyRepository: ProxyRepository? = null,
+    private val proxyHealthChecker: ProxyHealthChecker? = null,
+    private val proxyExecutionCoordinator: ProxyExecutionCoordinator? = null
 ) {
 
     suspend fun execute(runId: String, workAttempt: Int) = withContext(Dispatchers.IO) {
+        val repo = proxyRepository
+        val checker = proxyHealthChecker
+        val coordinator = proxyExecutionCoordinator
+        if (repo == null || checker == null || coordinator == null) {
+            executeRun(runId, workAttempt, client)
+            return@withContext
+        }
+
+        coordinator.activeProxy.value?.let { active ->
+            executeRun(runId, workAttempt, clientFor(active))
+            return@withContext
+        }
+
+        var proxy: ProxyConfiguration? = null
+        for (candidate in repo.getAllProxies().filter { it.enabled }) {
+            val result = try {
+                withTimeoutOrNull(5000L) { checker.checkHealth(candidate) }
+            } catch (_: Exception) {
+                null
+            }
+            repo.updateHealthStatus(
+                candidate.id,
+                result?.status ?: ProxyHealthStatus.TIMEOUT,
+                result?.latencyMs,
+                result?.errorMessage ?: "Proxy verification timed out"
+            )
+            if (result?.status == ProxyHealthStatus.HEALTHY) {
+                proxy = candidate
+                break
+            }
+        }
+
+        if (proxy == null) {
+            failRun(runId, "No verified proxy available; traffic run aborted to prevent location leak")
+            return@withContext
+        }
+
+        coordinator.acquireAndApply(proxy)
+        if (!coordinator.isProxyActive.value) {
+            coordinator.resetAndRelease()
+            failRun(runId, "Proxy override failed; traffic run aborted to prevent location leak")
+            return@withContext
+        }
+        try {
+            executeRun(runId, workAttempt, clientFor(proxy))
+        } finally {
+            coordinator.resetAndRelease()
+        }
+    }
+
+    private suspend fun failRun(runId: String, error: String) {
+        repository.getRun(runId)?.let {
+            repository.updateProgress(
+                it.copy(
+                    status = TrafficStatus.FAILED,
+                    lastError = error,
+                    completedAt = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    private fun clientFor(proxy: ProxyConfiguration): OkHttpClient {
+        val type = if (proxy.protocol == ProxyProtocol.SOCKS5) java.net.Proxy.Type.SOCKS else java.net.Proxy.Type.HTTP
+        val builder = client.newBuilder()
+            .proxy(java.net.Proxy(type, InetSocketAddress(proxy.host, proxy.port)))
+        val username = proxy.credentials?.username
+        val password = proxy.credentials?.password
+        if (!username.isNullOrBlank() && !password.isNullOrBlank()) {
+            builder.proxyAuthenticator(object : Authenticator {
+                override fun authenticate(route: Route?, response: Response): Request? =
+                    response.request.newBuilder()
+                        .header("Proxy-Authorization", Credentials.basic(username, password))
+                        .build()
+            })
+        }
+        return builder.build()
+    }
+
+    private suspend fun executeRun(runId: String, workAttempt: Int, client: OkHttpClient) = withContext(Dispatchers.IO) {
         var run = repository.getRun(runId) ?: return@withContext
         if (run.status !in setOf(
                 TrafficStatus.QUEUED, TrafficStatus.RUNNING,
@@ -100,7 +195,7 @@ class TrafficExecutor(
 
                             val url = buildUrl(run, index)
                             limiter.acquire()
-                            val outcome = sendWithRetry(run, url)
+                            val outcome = sendWithRetry(run, url, client)
 
                             counterLock.withLock {
                                 if (outcome.success) {
@@ -152,16 +247,16 @@ class TrafficExecutor(
         }
     }
 
-    private suspend fun sendWithRetry(run: TrafficRun, url: String): Attempt {
+    private suspend fun sendWithRetry(run: TrafficRun, url: String, client: OkHttpClient): Attempt {
         if (run.mode == TrafficMode.REAL_BROWSER && context != null) {
-            return executeBrowserVisit(url)
+            return executeBrowserVisit(url, client)
         }
         var attempt = 0
-        var result = perform(url)
+        var result = perform(url, client)
         while (!result.success && result.transient && attempt < 2) {
             attempt++
             delay(500L * (1 shl (attempt - 1)))
-            result = perform(url)
+            result = perform(url, client)
         }
         return result
     }
@@ -170,9 +265,9 @@ class TrafficExecutor(
      * Executes the page visit in an Android WebView with JavaScript enabled
      * so that client-side analytics (Google Analytics, GTM, Meta Pixel, Cloudflare) fire properly.
      */
-    private suspend fun executeBrowserVisit(url: String): Attempt = suspendCancellableCoroutine { continuation ->
+    private suspend fun executeBrowserVisit(url: String, client: OkHttpClient): Attempt = suspendCancellableCoroutine { continuation ->
         if (context == null) {
-            val result = runBlocking { perform(url) }
+            val result = runBlocking { perform(url, client) }
             continuation.resume(result)
             return@suspendCancellableCoroutine
         }
@@ -234,7 +329,7 @@ class TrafficExecutor(
         }
     }
 
-    private suspend fun perform(url: String): Attempt = withContext(Dispatchers.IO) {
+    private suspend fun perform(url: String, client: OkHttpClient): Attempt = withContext(Dispatchers.IO) {
         try {
             val userAgent = getRandomUserAgent()
             val referer = getRandomReferrer()

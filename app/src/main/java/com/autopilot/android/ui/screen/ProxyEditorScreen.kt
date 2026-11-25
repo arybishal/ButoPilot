@@ -316,6 +316,13 @@ fun ProxyEditorScreen(
 
                 testResult?.let { res ->
                     HealthStatusBadge(status = res.status, latencyMs = res.latencyMs)
+                    if (!res.exitIp.isNullOrBlank() || !res.exitCountry.isNullOrBlank()) {
+                        Text(
+                            text = "Exit location: ${res.locationLabel}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
 

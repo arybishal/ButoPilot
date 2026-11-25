@@ -98,5 +98,14 @@ data class ProxyTestResult(
     val status: ProxyHealthStatus,
     val latencyMs: Long?,
     val timestamp: Long = System.currentTimeMillis(),
-    val errorMessage: String? = null
-)
+    val errorMessage: String? = null,
+    val exitIp: String? = null,
+    val exitCountry: String? = null
+) {
+    val locationLabel: String
+        get() = when {
+            exitCountry.isNullOrBlank() -> exitIp ?: "Unknown"
+            exitIp.isNullOrBlank() -> exitCountry
+            else -> "$exitCountry ($exitIp)"
+        }
+}

@@ -33,6 +33,9 @@ class ProxyExecutionCoordinator {
     private val _isLocked = MutableStateFlow(false)
     val isLocked: StateFlow<Boolean> = _isLocked.asStateFlow()
 
+    private val _isProxyActive = MutableStateFlow(false)
+    val isProxyActive: StateFlow<Boolean> = _isProxyActive.asStateFlow()
+
     /**
      * Executes the given suspending block with exclusive serialized proxy access.
      * Restores default network configuration and releases lock unconditionally on exit.
@@ -58,10 +61,12 @@ class ProxyExecutionCoordinator {
 
         try {
             if (proxy != null) {
-                applyProxyInternal(proxy)
-                _activeProxy.value = proxy
+                val applied = applyProxyInternal(proxy)
+                _isProxyActive.value = applied
+                _activeProxy.value = if (applied) proxy else null
             } else {
                 clearProxyInternal()
+                _isProxyActive.value = false
                 _activeProxy.value = null
             }
         } catch (e: Exception) {
@@ -78,6 +83,7 @@ class ProxyExecutionCoordinator {
     suspend fun resetAndRelease() {
         try {
             clearProxyInternal()
+            _isProxyActive.value = false
             _activeProxy.value = null
         } catch (e: Exception) {
             // Log or ignore during teardown
@@ -95,10 +101,12 @@ class ProxyExecutionCoordinator {
     suspend fun updateProxy(proxy: ProxyConfiguration?) {
         try {
             if (proxy != null) {
-                applyProxyInternal(proxy)
-                _activeProxy.value = proxy
+                val applied = applyProxyInternal(proxy)
+                _isProxyActive.value = applied
+                _activeProxy.value = if (applied) proxy else null
             } else {
                 clearProxyInternal()
+                _isProxyActive.value = false
                 _activeProxy.value = null
             }
         } catch (e: Exception) {
@@ -106,10 +114,10 @@ class ProxyExecutionCoordinator {
         }
     }
 
-    private suspend fun applyProxyInternal(proxy: ProxyConfiguration) {
+    private suspend fun applyProxyInternal(proxy: ProxyConfiguration): Boolean {
         if (!ProxyCompatibilityChecker.isProxyOverrideSupported()) {
-            // If device WebView does not support PROXY_OVERRIDE, do not crash; record state
-            return
+            // If device WebView does not support PROXY_OVERRIDE, report inactive instead of pretending routing works
+            return false
         }
 
         val hostPort = "${proxy.host}:${proxy.port}"
@@ -138,26 +146,24 @@ class ProxyExecutionCoordinator {
         builder.addBypassRule("localhost")
         builder.addBypassRule("127.0.0.1")
 
-        // Fall back to direct connection if proxy cannot route or fails,
-        // preventing tabs from freezing on permanent blank screens
-        builder.addDirect()
+        // No addDirect(): a failed proxy must fail closed instead of leaking the device IP
 
         val proxyConfig = builder.build()
 
-        suspendCancellableCoroutine<Unit> { cont ->
+        return suspendCancellableCoroutine<Boolean> { cont ->
             try {
                 ProxyController.getInstance().setProxyOverride(
                     proxyConfig,
                     mainExecutor,
                     Runnable {
                         if (cont.isActive) {
-                            cont.resume(Unit)
+                            cont.resume(true)
                         }
                     }
                 )
             } catch (e: Exception) {
                 if (cont.isActive) {
-                    cont.resume(Unit) // Continue even if listener invocation had warning
+                    cont.resume(false)
                 }
             }
         }

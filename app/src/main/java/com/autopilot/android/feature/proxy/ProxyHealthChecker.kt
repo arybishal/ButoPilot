@@ -19,11 +19,18 @@ import java.net.Socket
 import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 
+internal fun isDeviceIpLeak(exitIp: String, localIp: String?): Boolean =
+    !localIp.isNullOrBlank() && localIp.trim().equals(exitIp.trim(), ignoreCase = true)
+
 class ProxyHealthChecker(
     private val connectTimeoutMs: Long = 5000L,
     private val readTimeoutMs: Long = 5000L,
-    private val probeUrl: String = "https://www.google.com/generate_204"
+    private val probeUrl: String = "https://www.google.com/generate_204",
+    private val verifyExit: Boolean = false
 ) {
+
+    @Volatile
+    private var cachedLocalIp: String? = null
 
     /**
      * Executes an isolated network probe through the given proxy configuration with a strict timeout.
@@ -32,13 +39,18 @@ class ProxyHealthChecker(
         val startTime = System.currentTimeMillis()
 
         try {
-            when (proxy.protocol) {
+            val result = when (proxy.protocol) {
                 ProxyProtocol.HTTP, ProxyProtocol.HTTPS -> {
                     checkHttpProxy(proxy, startTime)
                 }
                 ProxyProtocol.SOCKS5 -> {
                     checkSocksProxy(proxy, startTime)
                 }
+            }
+            if (verifyExit && result.status == ProxyHealthStatus.HEALTHY) {
+                verifyExitLocation(proxy, result, startTime)
+            } else {
+                result
             }
         } catch (e: SocketTimeoutException) {
             ProxyTestResult(
@@ -76,11 +88,9 @@ class ProxyHealthChecker(
         }
     }
 
-    private fun checkHttpProxy(proxy: ProxyConfiguration, startTime: Long): ProxyTestResult {
-        val javaProxy = Proxy(Proxy.Type.HTTP, InetSocketAddress(proxy.host, proxy.port))
-
+    private fun buildClient(proxy: ProxyConfiguration, type: Proxy.Type): OkHttpClient.Builder {
         val clientBuilder = OkHttpClient.Builder()
-            .proxy(javaProxy)
+            .proxy(Proxy(type, InetSocketAddress(proxy.host, proxy.port)))
             .connectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
             .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
             .followRedirects(true)
@@ -91,12 +101,6 @@ class ProxyHealthChecker(
         if (!username.isNullOrBlank() && !password.isNullOrBlank()) {
             clientBuilder.proxyAuthenticator(object : Authenticator {
                 override fun authenticate(route: Route?, response: Response): Request? {
-                    if (response.challenges().any { it.scheme.equals("OkHttp-Preemptive", ignoreCase = true) || it.scheme.equals("Basic", ignoreCase = true) }) {
-                        val credential = Credentials.basic(username, password)
-                        return response.request.newBuilder()
-                            .header("Proxy-Authorization", credential)
-                            .build()
-                    }
                     val credential = Credentials.basic(username, password)
                     return response.request.newBuilder()
                         .header("Proxy-Authorization", credential)
@@ -104,6 +108,11 @@ class ProxyHealthChecker(
                 }
             })
         }
+        return clientBuilder
+    }
+
+    private fun checkHttpProxy(proxy: ProxyConfiguration, startTime: Long): ProxyTestResult {
+        val clientBuilder = buildClient(proxy, Proxy.Type.HTTP)
 
         val effectiveProbeUrl = if (proxy.protocol == ProxyProtocol.HTTP && probeUrl.startsWith("https://", ignoreCase = true)) {
             "http://connectivitycheck.gstatic.com/generate_204"
@@ -286,6 +295,67 @@ class ProxyHealthChecker(
         }
     }
 
+    /**
+     * Confirms that the proxy actually changes the public exit IP and records its country.
+     * A proxy that returns the device's own IP is not healthy even if its probe succeeded.
+     */
+    private fun verifyExitLocation(
+        proxy: ProxyConfiguration,
+        result: ProxyTestResult,
+        startTime: Long
+    ): ProxyTestResult {
+        val type = if (proxy.protocol == ProxyProtocol.SOCKS5) Proxy.Type.SOCKS else Proxy.Type.HTTP
+        val client = buildClient(proxy, type).build()
+        val request = Request.Builder()
+            .url("https://ipinfo.io/json")
+            .header("User-Agent", "AutoPilot/1.0.0 (Android; ExitVerification)")
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            val exitIp = IP_REGEX.find(body)?.groupValues?.getOrNull(1)?.trim()
+            val country = COUNTRY_REGEX.find(body)?.groupValues?.getOrNull(1)?.uppercase()
+            if (!response.isSuccessful || exitIp.isNullOrBlank() || country.isNullOrBlank()) {
+                return result.copy(
+                    status = ProxyHealthStatus.UNHEALTHY,
+                    errorMessage = "Exit IP verification failed (HTTP ${response.code}); cannot confirm proxy location"
+                )
+            }
+
+            val localIp = getLocalExitIp()
+            if (isDeviceIpLeak(exitIp, localIp)) {
+                return result.copy(
+                    status = ProxyHealthStatus.UNHEALTHY,
+                    errorMessage = "Proxy leaks the device IP ($exitIp); routing is not isolated"
+                )
+            }
+
+            return result.copy(
+                latencyMs = System.currentTimeMillis() - startTime,
+                exitIp = exitIp,
+                exitCountry = country
+            )
+        }
+    }
+
+    private fun getLocalExitIp(): String? {
+        cachedLocalIp?.let { return it }
+        val client = OkHttpClient.Builder()
+            .connectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
+            .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
+            .build()
+        val request = Request.Builder().url("https://api.ipify.org").build()
+        try {
+            client.newCall(request).execute().use { response ->
+                val ip = response.body?.string()?.trim()
+                if (response.isSuccessful && !ip.isNullOrBlank()) cachedLocalIp = ip
+            }
+        } catch (_: Exception) {
+            // Without a baseline IP we can still report the exit country, but cannot compare leaks
+        }
+        return cachedLocalIp
+    }
+
     private fun fallbackSocketProbe(proxy: ProxyConfiguration, startTime: Long, primaryException: Exception): ProxyTestResult {
         val elapsed = System.currentTimeMillis() - startTime
         val isTimeout = primaryException is SocketTimeoutException ||
@@ -315,5 +385,10 @@ class ProxyHealthChecker(
             timestamp = System.currentTimeMillis(),
             errorMessage = errorDesc
         )
+    }
+
+    private companion object {
+        val IP_REGEX = Regex("\"ip\"\\s*:\\s*\"([^\"]+)\"")
+        val COUNTRY_REGEX = Regex("\"(?:country|country_code)\"\\s*:\\s*\"([A-Za-z]{2})\"")
     }
 }

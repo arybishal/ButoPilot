@@ -851,7 +851,7 @@ fun ProxyListScreen(
                                             val result = healthChecker.checkHealth(proxy)
                                             proxyRepository.updateHealthStatus(proxy.id, result.status, result.latencyMs, result.errorMessage)
                                             testingProxyId = null
-                                            snackbarHostState.showSnackbar("${proxy.host}:${proxy.port} -> ${result.status.displayName} (${result.latencyMs ?: 0}ms)")
+                                            snackbarHostState.showSnackbar("${proxy.host}:${proxy.port} -> ${result.status.displayName} (${result.latencyMs ?: 0}ms), exit ${result.locationLabel}")
                                         }
                                     },
                                     onToggleEnabled = { enabled ->
@@ -991,7 +991,7 @@ fun ProxyListScreen(
                                             val result = healthChecker.checkHealth(proxy)
                                             proxyRepository.updateHealthStatus(proxy.id, result.status, result.latencyMs, result.errorMessage)
                                             testingProxyId = null
-                                            snackbarHostState.showSnackbar("${proxy.host}:${proxy.port} -> ${result.status.displayName}")
+                                            snackbarHostState.showSnackbar("${proxy.host}:${proxy.port} -> ${result.status.displayName}, exit ${result.locationLabel}")
                                         }
                                     },
                                     onToggleEnabled = { enabled ->
@@ -1070,7 +1070,7 @@ fun ProxyListScreen(
                                             val result = healthChecker.checkHealth(proxy)
                                             proxyRepository.updateHealthStatus(proxy.id, result.status, result.latencyMs, result.errorMessage)
                                             testingProxyId = null
-                                            snackbarHostState.showSnackbar("${proxy.host}:${proxy.port} -> ${result.status.displayName}")
+                                            snackbarHostState.showSnackbar("${proxy.host}:${proxy.port} -> ${result.status.displayName}, exit ${result.locationLabel}")
                                         }
                                     },
                                     onToggleEnabled = { enabled ->

@@ -161,11 +161,19 @@ fun AutomationMonitorScreen(
                             )
                             Column {
                                 Text(
-                                    text = engineState.currentProxyName ?: "Direct (No Proxy Active)",
+                                    text = engineState.currentProxyName ?: "No Verified Proxy Active",
                                     style = MaterialTheme.typography.bodySmall,
                                     fontWeight = FontWeight.SemiBold,
                                     maxLines = 1
                                 )
+                                engineState.currentProxyLocation?.let { location ->
+                                    Text(
+                                        text = "Exit location: $location",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 1
+                                    )
+                                }
                                 val minutes = engineState.nextProxyRotationSeconds / 60
                                 val seconds = engineState.nextProxyRotationSeconds % 60
                                 Text(

@@ -43,6 +43,7 @@ data class EngineState(
     val errorMessage: String? = null,
     val isMultiRun: Boolean = false,
     val currentProxyName: String? = null,
+    val currentProxyLocation: String? = null,
     val nextProxyRotationSeconds: Long = 600L
 )
 
@@ -192,74 +193,24 @@ class AutomationCoordinator(
         executionJob = scope.launch {
             var proxyLocked = false
             try {
-                // Network isolation check: enforce proxy configuration if set
-                val configuredProxyId = profile.proxyId
-                if (!configuredProxyId.isNullOrBlank()) {
-                    val proxy = proxyRepository?.getProxyById(configuredProxyId)
-                    if (proxy == null || !proxy.enabled) {
-                        val errMsg = "Configured proxy [ID: $configuredProxyId] is unavailable or disabled. Execution aborted to protect network isolation."
-                        eventTracker?.recordEvent(
-                            executionId = currentExecutionId,
-                            profileId = profile.id,
-                            eventType = ExecutionEventType.EXECUTION_FAILED,
-                            errorCategory = ExecutionErrorCategory.PROXY_UNAVAILABLE,
-                            message = errMsg
-                        )
-                        _engineState.value = _engineState.value.copy(
-                            status = ProfileStatus.ERROR,
-                            statusMessage = errMsg,
-                            errorMessage = errMsg
-                        )
-                        profileRepository.updateStatus(profile.id, ProfileStatus.ERROR)
-                        return@launch
-                    }
-
-                    val proxyDesc = "${proxy.name} (${proxy.protocol.displayName} ${proxy.host}:${proxy.port})"
+                if (!ensureProxyForRun(profile)) {
+                    val errMsg = "No verified proxy available. Execution aborted to prevent location leak."
+                    eventTracker?.recordEvent(
+                        executionId = currentExecutionId,
+                        profileId = profile.id,
+                        eventType = ExecutionEventType.EXECUTION_FAILED,
+                        errorCategory = ExecutionErrorCategory.PROXY_UNAVAILABLE,
+                        message = errMsg
+                    )
                     _engineState.value = _engineState.value.copy(
-                        statusMessage = "Applying network isolation: $proxyDesc...",
-                        currentProxyName = proxyDesc
+                        status = ProfileStatus.ERROR,
+                        statusMessage = errMsg,
+                        errorMessage = errMsg
                     )
-                    eventTracker?.recordEvent(
-                        executionId = currentExecutionId,
-                        profileId = profile.id,
-                        eventType = ExecutionEventType.PROXY_SELECTED,
-                        message = "Selected proxy: $proxyDesc"
-                    )
-                    proxyExecutionCoordinator?.acquireAndApply(proxy)
-                    proxyLocked = true
-                    eventTracker?.recordEvent(
-                        executionId = currentExecutionId,
-                        profileId = profile.id,
-                        eventType = ExecutionEventType.PROXY_COMPATIBILITY_CHECKED,
-                        message = "Proxy routing rules acquired and verified"
-                    )
-                } else if (profile.enableFreeProxy) {
-                    val freeProxy = obtainHealthyFreeProxy()
-                    if (freeProxy != null) {
-                        val proxyDesc = "${freeProxy.name} (${freeProxy.protocol.displayName} ${freeProxy.host}:${freeProxy.port})"
-                        _engineState.value = _engineState.value.copy(
-                            statusMessage = "Connected to free proxy: $proxyDesc",
-                            currentProxyName = proxyDesc
-                        )
-                        proxyExecutionCoordinator?.acquireAndApply(freeProxy)
-                        proxyLocked = true
-                        eventTracker?.recordEvent(
-                            executionId = currentExecutionId,
-                            profileId = profile.id,
-                            eventType = ExecutionEventType.PROXY_SELECTED,
-                            message = "Selected free proxy: $proxyDesc"
-                        )
-                    } else {
-                        _engineState.value = _engineState.value.copy(
-                            statusMessage = "No working free proxy found, running with direct connection..."
-                        )
-                        proxyExecutionCoordinator?.acquireAndApply(null)
-                        proxyLocked = true
-                    }
-                } else {
-                    proxyExecutionCoordinator?.acquireAndApply(null)
-                    proxyLocked = true
+                    profileRepository.updateStatus(profile.id, ProfileStatus.ERROR)
+                    return@launch
                 }
+                proxyLocked = true
 
                 if (profile.enableSpoofing) {
                     val spoofManager = deviceSpoofManager
@@ -370,37 +321,26 @@ class AutomationCoordinator(
         executionJob = scope.launch {
             var proxyLocked = false
             try {
-                // Initialize proxy if any profile requests proxy or free proxy
                 val proxyProfile = profiles.firstOrNull { !it.proxyId.isNullOrBlank() || it.enableFreeProxy }
-                if (proxyProfile != null) {
-                    val configuredProxyId = proxyProfile.proxyId
-                    if (!configuredProxyId.isNullOrBlank()) {
-                        val proxy = proxyRepository?.getProxyById(configuredProxyId)
-                        if (proxy != null && proxy.enabled) {
-                            val desc = "${proxy.name} (${proxy.protocol.displayName} ${proxy.host}:${proxy.port})"
-                            _engineState.value = _engineState.value.copy(currentProxyName = desc)
-                            proxyExecutionCoordinator?.acquireAndApply(proxy)
-                            proxyLocked = true
-                        }
-                    } else if (proxyProfile.enableFreeProxy) {
-                        val freeProxy = obtainHealthyFreeProxy()
-                        if (freeProxy != null) {
-                            val desc = "${freeProxy.name} (${freeProxy.protocol.displayName} ${freeProxy.host}:${freeProxy.port})"
-                            _engineState.value = _engineState.value.copy(
-                                statusMessage = "Connected to free proxy: $desc",
-                                currentProxyName = desc
-                            )
-                            proxyExecutionCoordinator?.acquireAndApply(freeProxy)
-                            proxyLocked = true
-                        } else {
-                            proxyExecutionCoordinator?.acquireAndApply(null)
-                            proxyLocked = true
-                        }
-                    }
-                } else {
-                    proxyExecutionCoordinator?.acquireAndApply(null)
-                    proxyLocked = true
+                    ?: profiles.first()
+                if (!ensureProxyForRun(proxyProfile)) {
+                    val errMsg = "No verified proxy available. Multi-run aborted to prevent location leak."
+                    eventTracker?.recordEvent(
+                        executionId = currentExecutionId,
+                        profileId = "multi",
+                        eventType = ExecutionEventType.EXECUTION_FAILED,
+                        errorCategory = ExecutionErrorCategory.PROXY_UNAVAILABLE,
+                        message = errMsg
+                    )
+                    _engineState.value = _engineState.value.copy(
+                        status = ProfileStatus.ERROR,
+                        statusMessage = errMsg,
+                        errorMessage = errMsg
+                    )
+                    profiles.forEach { p -> profileRepository.updateStatus(p.id, ProfileStatus.ERROR) }
+                    return@launch
                 }
+                proxyLocked = true
 
                 // Mark all profiles running in database
                 profiles.forEach { p ->
@@ -532,6 +472,49 @@ class AutomationCoordinator(
                 }
             }
         }
+    }
+
+    /**
+     * Verifies the candidate's exit IP, then applies the WebView override.
+     * Returns false when routing cannot be proven active so callers can fail closed.
+     */
+    private suspend fun applyVerifiedProxy(proxy: ProxyConfiguration, relock: Boolean = true): Boolean {
+        val coordinator = proxyExecutionCoordinator ?: return true
+        var location = proxy.getDisplayRegion().takeIf { it != "Unknown" }
+
+        val checker = proxyHealthChecker
+        if (checker != null) {
+            val result = withTimeoutOrNull(5000L) { checker.checkHealth(proxy) }
+            if (result == null || result.status != ProxyHealthStatus.HEALTHY) {
+                proxyRepository?.updateHealthStatus(
+                    proxy.id,
+                    result?.status ?: ProxyHealthStatus.TIMEOUT,
+                    result?.latencyMs,
+                    result?.errorMessage ?: "Proxy verification timed out"
+                )
+                return false
+            }
+            location = result.locationLabel
+        }
+
+        if (relock) coordinator.acquireAndApply(proxy) else coordinator.updateProxy(proxy)
+        if (!coordinator.isProxyActive.value) return false
+
+        _engineState.value = _engineState.value.copy(
+            statusMessage = "Connected through proxy: ${proxy.name} (${location ?: "location unknown"})",
+            currentProxyName = "${proxy.name} (${proxy.protocol.displayName} ${proxy.host}:${proxy.port})",
+            currentProxyLocation = location
+        )
+        return true
+    }
+
+    private suspend fun ensureProxyForRun(profile: AutomationProfile): Boolean {
+        val repo = proxyRepository ?: return true
+        if (proxyExecutionCoordinator == null) return true
+        val configured = profile.proxyId?.takeIf { it.isNotBlank() }?.let { repo.getProxyById(it) }
+        val candidate = configured ?: obtainHealthyFreeProxy() ?: return false
+        if (!candidate.enabled) return false
+        return applyVerifiedProxy(candidate)
     }
 
     /**
@@ -675,47 +658,25 @@ class AutomationCoordinator(
         }
 
         for (candidate in candidates) {
-            val isHealthy = if (proxyHealthChecker != null) {
-                try {
-                    val result = withTimeoutOrNull(5000L) {
-                        proxyHealthChecker.checkHealth(candidate)
-                    }
-                    if (result != null) {
-                        repo.updateHealthStatus(candidate.id, result.status, result.latencyMs, result.errorMessage)
-                        result.status == ProxyHealthStatus.HEALTHY
-                    } else {
-                        repo.updateHealthStatus(candidate.id, ProxyHealthStatus.TIMEOUT, 5000L, "Health check timed out")
-                        false
-                    }
-                } catch (e: Exception) {
-                    false
+            if (!applyVerifiedProxy(candidate, relock = false)) continue
+            val proxyDesc = "${candidate.name} (${candidate.protocol.displayName} ${candidate.host}:${candidate.port})"
+            _engineState.value = _engineState.value.copy(
+                currentProxyName = proxyDesc,
+                nextProxyRotationSeconds = 600L,
+                statusMessage = "Auto-rotated to healthy proxy: ${candidate.name}"
+            )
+            eventTracker?.recordEvent(
+                executionId = currentExecutionId,
+                profileId = activeProfile?.id ?: "multi",
+                eventType = ExecutionEventType.PROXY_SELECTED,
+                message = "10-Minute Auto-Rotation: Switched to healthy proxy $proxyDesc"
+            )
+            withContext(Dispatchers.Main) {
+                for (i in 0 until _engineState.value.totalTabs) {
+                    webViewManager.reloadTab(i)
                 }
-            } else {
-                true
             }
-
-            if (isHealthy) {
-                proxyExecutionCoordinator?.updateProxy(candidate)
-                val proxyDesc = "${candidate.name} (${candidate.protocol.displayName} ${candidate.host}:${candidate.port})"
-                _engineState.value = _engineState.value.copy(
-                    currentProxyName = proxyDesc,
-                    nextProxyRotationSeconds = 600L,
-                    statusMessage = "Auto-rotated to healthy proxy: ${candidate.name}"
-                )
-                eventTracker?.recordEvent(
-                    executionId = currentExecutionId,
-                    profileId = activeProfile?.id ?: "multi",
-                    eventType = ExecutionEventType.PROXY_SELECTED,
-                    message = "10-Minute Auto-Rotation: Switched to healthy proxy $proxyDesc"
-                )
-                // Reload active tabs so that navigation resumes cleanly on the newly active proxy
-                withContext(Dispatchers.Main) {
-                    for (i in 0 until _engineState.value.totalTabs) {
-                        webViewManager.reloadTab(i)
-                    }
-                }
-                return true
-            }
+            return true
         }
         return false
     }
