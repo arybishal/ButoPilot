@@ -51,7 +51,7 @@ class TrafficController(
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(
             TrafficWorker.workName(runId),
-            ExistingWorkPolicy.KEEP,
+            ExistingWorkPolicy.REPLACE,
             request
         )
     }

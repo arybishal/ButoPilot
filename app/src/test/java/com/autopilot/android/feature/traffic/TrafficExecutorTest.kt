@@ -70,6 +70,19 @@ class TrafficExecutorTest {
         assertTrue(result.lastError!!.contains("403"))
     }
 
+    @Test
+    fun executor_fallsBackToDirectWhenNoHealthyProxyAvailable() = runBlocking {
+        val client = fakeClient { 200 }
+        val repository = FakeTrafficRepository(newRun(planned = 2))
+
+        TrafficExecutor(repository, client = client).execute("run", 0)
+
+        val result = repository.getRun("run")!!
+        assertEquals(2, result.submitted)
+        assertEquals(0, result.failed)
+        assertEquals(TrafficStatus.COMPLETED, result.status)
+    }
+
     private fun newRun(planned: Int) = TrafficRun(
         id = "run",
         websiteUrl = "https://example.com",

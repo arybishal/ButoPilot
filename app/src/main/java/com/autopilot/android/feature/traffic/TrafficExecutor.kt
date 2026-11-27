@@ -76,6 +76,7 @@ class TrafficExecutor(
 ) {
 
     suspend fun execute(runId: String, workAttempt: Int) = withContext(Dispatchers.IO) {
+        val run = repository.getRun(runId) ?: return@withContext
         val repo = proxyRepository
         val checker = proxyHealthChecker
         val coordinator = proxyExecutionCoordinator
@@ -89,10 +90,22 @@ class TrafficExecutor(
             return@withContext
         }
 
+        // Prioritize already-healthy proxies, then untested, and cap probing to avoid multi-minute stalls.
+        val candidates = repo.getAllProxies()
+            .filter { it.enabled }
+            .sortedBy {
+                when (it.lastHealthStatus) {
+                    ProxyHealthStatus.HEALTHY -> 0
+                    ProxyHealthStatus.UNTESTED -> 1
+                    else -> 2
+                }
+            }
+            .take(8)
+
         var proxy: ProxyConfiguration? = null
-        for (candidate in repo.getAllProxies().filter { it.enabled }) {
+        for (candidate in candidates) {
             val result = try {
-                withTimeoutOrNull(5000L) { checker.checkHealth(candidate) }
+                withTimeoutOrNull(3000L) { checker.checkHealth(candidate) }
             } catch (_: Exception) {
                 null
             }
@@ -109,14 +122,32 @@ class TrafficExecutor(
         }
 
         if (proxy == null) {
-            failRun(runId, "No verified proxy available; traffic run aborted to prevent location leak")
+            // Fall back to direct connection so Traffic Generator still runs when free proxies are offline.
+            executeRun(
+                runId = runId,
+                workAttempt = workAttempt,
+                client = client,
+                initialNote = "No verified proxy available; running with direct connection"
+            )
+            return@withContext
+        }
+
+        if (run.mode == TrafficMode.PAGE_REQUEST) {
+            // OkHttp uses clientFor(proxy) directly without needing WebView ProxyController.
+            executeRun(runId, workAttempt, clientFor(proxy))
             return@withContext
         }
 
         coordinator.acquireAndApply(proxy)
         if (!coordinator.isProxyActive.value) {
             coordinator.resetAndRelease()
-            failRun(runId, "Proxy override failed; traffic run aborted to prevent location leak")
+            // WebView proxy override unsupported on this device; still route HTTP requests via proxy client.
+            executeRun(
+                runId = runId,
+                workAttempt = workAttempt,
+                client = clientFor(proxy),
+                initialNote = "WebView proxy override unavailable; using HTTP proxy engine"
+            )
             return@withContext
         }
         try {
@@ -155,7 +186,12 @@ class TrafficExecutor(
         return builder.build()
     }
 
-    private suspend fun executeRun(runId: String, workAttempt: Int, client: OkHttpClient) = withContext(Dispatchers.IO) {
+    private suspend fun executeRun(
+        runId: String,
+        workAttempt: Int,
+        client: OkHttpClient,
+        initialNote: String? = null
+    ) = withContext(Dispatchers.IO) {
         var run = repository.getRun(runId) ?: return@withContext
         if (run.status !in setOf(
                 TrafficStatus.QUEUED, TrafficStatus.RUNNING,
@@ -166,7 +202,11 @@ class TrafficExecutor(
         run = run.copy(
             status = TrafficStatus.RUNNING,
             startedAt = run.startedAt ?: System.currentTimeMillis(),
-            lastError = if (workAttempt > 0) "Resumed after interruption (attempt ${workAttempt + 1})" else null
+            lastError = when {
+                workAttempt > 0 -> "Resumed after interruption (attempt ${workAttempt + 1})"
+                initialNote != null -> initialNote
+                else -> null
+            }
         )
         repository.updateProgress(run)
 
@@ -265,68 +305,110 @@ class TrafficExecutor(
      * Executes the page visit in an Android WebView with JavaScript enabled
      * so that client-side analytics (Google Analytics, GTM, Meta Pixel, Cloudflare) fire properly.
      */
-    private suspend fun executeBrowserVisit(url: String, client: OkHttpClient): Attempt = suspendCancellableCoroutine { continuation ->
+    private suspend fun executeBrowserVisit(url: String, client: OkHttpClient): Attempt {
         if (context == null) {
-            val result = runBlocking { perform(url, client) }
-            continuation.resume(result)
-            return@suspendCancellableCoroutine
+            return perform(url, client)
         }
 
-        Handler(Looper.getMainLooper()).post {
-            try {
-                val webView = WebView(context).apply {
-                    settings.apply {
-                        javaScriptEnabled = true
-                        domStorageEnabled = true
-                        databaseEnabled = true
-                        useWideViewPort = true
-                        loadWithOverviewMode = true
-                        loadsImagesAutomatically = true
-                        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                        userAgentString = getRandomUserAgent()
+        val webViewAttempt = withTimeoutOrNull(18_000L) {
+            suspendCancellableCoroutine<Attempt> { continuation ->
+                val mainHandler = Handler(Looper.getMainLooper())
+                var webViewRef: WebView? = null
+                var timeoutRunnable: Runnable? = null
+
+                continuation.invokeOnCancellation {
+                    mainHandler.post {
+                        timeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+                        try {
+                            webViewRef?.stopLoading()
+                            webViewRef?.destroy()
+                        } catch (_: Exception) {}
                     }
+                }
 
-                    val cookieManager = CookieManager.getInstance()
-                    cookieManager.setAcceptCookie(true)
+                mainHandler.post {
+                    try {
+                        var isFinished = false
+                        val webView = WebView(context)
+                        webViewRef = webView
 
-                    webViewClient = object : WebViewClient() {
-                        private var isFinished = false
-
-                        override fun onPageFinished(view: WebView?, finishedUrl: String?) {
-                            super.onPageFinished(view, finishedUrl)
+                        val timeout = Runnable {
                             if (!isFinished) {
                                 isFinished = true
-                                // Allow 1.2s for analytics scripts to execute HTTP beacons
-                                Handler(Looper.getMainLooper()).postDelayed({
-                                    try {
-                                        destroy()
-                                    } catch (_: Exception) {}
-                                    if (continuation.isActive) {
-                                        continuation.resume(Attempt(true))
-                                    }
-                                }, 1200)
-                            }
-                        }
-
-                        override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
-                            super.onReceivedError(view, errorCode, description, failingUrl)
-                            if (!isFinished) {
-                                isFinished = true
-                                try { destroy() } catch (_: Exception) {}
+                                try {
+                                    webView.stopLoading()
+                                    webView.destroy()
+                                } catch (_: Exception) {}
                                 if (continuation.isActive) {
-                                    continuation.resume(Attempt(false, description ?: "Error $errorCode"))
+                                    continuation.resume(Attempt(false, "Browser page load timed out", transient = true))
                                 }
                             }
                         }
+                        timeoutRunnable = timeout
+                        mainHandler.postDelayed(timeout, 15_000L)
+
+                        webView.apply {
+                            settings.apply {
+                                javaScriptEnabled = true
+                                domStorageEnabled = true
+                                databaseEnabled = true
+                                useWideViewPort = true
+                                loadWithOverviewMode = true
+                                loadsImagesAutomatically = true
+                                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                userAgentString = getRandomUserAgent()
+                            }
+
+                            val cookieManager = CookieManager.getInstance()
+                            cookieManager.setAcceptCookie(true)
+
+                            webViewClient = object : WebViewClient() {
+                                override fun onPageFinished(view: WebView?, finishedUrl: String?) {
+                                    super.onPageFinished(view, finishedUrl)
+                                    if (!isFinished) {
+                                        isFinished = true
+                                        mainHandler.removeCallbacks(timeout)
+                                        // Allow 1.2s for analytics scripts to execute HTTP beacons
+                                        mainHandler.postDelayed({
+                                            try {
+                                                destroy()
+                                            } catch (_: Exception) {}
+                                            if (continuation.isActive) {
+                                                continuation.resume(Attempt(true))
+                                            }
+                                        }, 1200)
+                                    }
+                                }
+
+                                override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
+                                    super.onReceivedError(view, errorCode, description, failingUrl)
+                                    if (!isFinished && failingUrl == url) {
+                                        isFinished = true
+                                        mainHandler.removeCallbacks(timeout)
+                                        try { destroy() } catch (_: Exception) {}
+                                        if (continuation.isActive) {
+                                            continuation.resume(Attempt(false, description ?: "Error $errorCode", transient = true))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        webView.loadUrl(url)
+                    } catch (e: Exception) {
+                        timeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+                        if (continuation.isActive) {
+                            continuation.resume(Attempt(false, "WEBVIEW_UNAVAILABLE: ${e.message}"))
+                        }
                     }
                 }
-                webView.loadUrl(url)
-            } catch (e: Exception) {
-                if (continuation.isActive) {
-                    continuation.resume(Attempt(false, e.message ?: "WebView failed to initialize"))
-                }
             }
+        } ?: Attempt(false, "Browser visit timed out", transient = true)
+
+        // If WebView could not initialize on this context, fall back to HTTP engine so traffic still runs.
+        if (!webViewAttempt.success && webViewAttempt.error?.startsWith("WEBVIEW_UNAVAILABLE:") == true) {
+            return perform(url, client)
         }
+        return webViewAttempt
     }
 
     private suspend fun perform(url: String, client: OkHttpClient): Attempt = withContext(Dispatchers.IO) {

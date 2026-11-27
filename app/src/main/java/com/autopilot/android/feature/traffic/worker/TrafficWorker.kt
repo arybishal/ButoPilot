@@ -70,7 +70,7 @@ class TrafficWorker(
                 .build()
             androidx.work.WorkManager.getInstance(context).enqueueUniqueWork(
                 workName(runId),
-                androidx.work.ExistingWorkPolicy.KEEP,
+                androidx.work.ExistingWorkPolicy.REPLACE,
                 request
             )
         }
