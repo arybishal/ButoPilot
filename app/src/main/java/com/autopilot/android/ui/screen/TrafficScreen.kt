@@ -27,6 +27,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.autopilot.android.data.repository.TrafficRepository
+import com.autopilot.android.domain.model.DeviceCatalog
+import com.autopilot.android.domain.model.DeviceCategory
 import com.autopilot.android.feature.traffic.TrafficController
 import com.autopilot.android.feature.traffic.TrafficMode
 import com.autopilot.android.feature.traffic.TrafficReportExporter
@@ -70,6 +72,7 @@ fun TrafficScreen(
     var volume by remember { mutableFloatStateOf(10_000f) }
     var speed by remember { mutableStateOf(TrafficSpeed.NORMAL) }
     var concurrency by remember { mutableIntStateOf(2) }
+    var deviceCategory by remember { mutableStateOf(DeviceCategory.ALL) }
     var pagesText by remember { mutableStateOf("") }
     var showConfirm by remember { mutableStateOf(false) }
     var isStarting by remember { mutableStateOf(false) }
@@ -177,7 +180,8 @@ fun TrafficScreen(
                         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        FeatureBadge(label = "Real Browser Sessions", icon = Icons.Default.Language)
+                        FeatureBadge(label = "Stealth & Human Scroll", icon = Icons.Default.Language)
+                        FeatureBadge(label = "Organic Search Mode", icon = Icons.Default.Search)
                         FeatureBadge(label = "UA & Referrer Rotation", icon = Icons.Default.Refresh)
                         FeatureBadge(label = "Analytics Friendly", icon = Icons.Default.CheckCircle)
                     }
@@ -578,6 +582,40 @@ fun TrafficScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
+                    // Device Spoofing
+                    Text(
+                        text = "Device Spoofing",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF0F172A)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Every request uses a new random device from the selected group",
+                        fontSize = 12.sp,
+                        color = Color(0xFF64748B)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        DeviceCategory.entries.forEach { category ->
+                            FilterChip(
+                                selected = deviceCategory == category,
+                                onClick = { deviceCategory = category },
+                                label = {
+                                    Text(
+                                        "${category.label} (${DeviceCatalog.count(category)})",
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
                     // Optional Page Paths
                     OutlinedTextField(
                         value = pagesText,
@@ -751,7 +789,7 @@ fun TrafficScreen(
                                             DashboardStatBox("Duration", "${run.durationSeconds()}s", Color(0xFF0F172A), Modifier.weight(1f))
                                         }
                                         Spacer(modifier = Modifier.height(8.dp))
-                                        Text("Mode: ${run.mode.label} • Speed: ${run.speed.label} (${run.speed.eventsPerMinute}/m)", fontSize = 12.sp, color = Color(0xFF475569))
+                                        Text("Mode: ${run.mode.label} • Speed: ${run.speed.label} (${run.speed.eventsPerMinute}/m) • Devices: ${run.deviceCategory.label}", fontSize = 12.sp, color = Color(0xFF475569))
                                         if (!run.lastError.isNullOrBlank()) {
                                             Text("Note: ${run.lastError}", fontSize = 12.sp, color = Color(0xFFEF4444))
                                         }
@@ -832,7 +870,8 @@ fun TrafficScreen(
                                             speed = speed,
                                             concurrency = concurrency,
                                             pagePaths = pagePaths,
-                                            status = TrafficStatus.QUEUED
+                                            status = TrafficStatus.QUEUED,
+                                            deviceCategory = deviceCategory
                                         )
                                         repository.createRun(run)
                                         controller.start(run.id)

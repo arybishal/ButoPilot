@@ -9,6 +9,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.autopilot.android.data.repository.ProxyRepository
 import com.autopilot.android.data.repository.TrafficRepository
+import com.autopilot.android.domain.model.DeviceCatalog
+import com.autopilot.android.domain.model.DeviceCategory
 import com.autopilot.android.domain.model.proxy.ProxyConfiguration
 import com.autopilot.android.domain.model.proxy.ProxyHealthStatus
 import com.autopilot.android.domain.model.proxy.ProxyProtocol
@@ -309,29 +311,43 @@ class TrafficExecutor(
     }
 
     private suspend fun sendWithRetry(run: TrafficRun, url: String, client: OkHttpClient): Attempt {
-        if (run.mode == TrafficMode.REAL_BROWSER && context != null) {
-            return executeBrowserVisit(url, client)
+        if ((run.mode == TrafficMode.REAL_BROWSER || run.mode == TrafficMode.ORGANIC_SEARCH) && context != null) {
+            return executeBrowserVisit(
+                url = url,
+                client = client,
+                category = run.deviceCategory,
+                organicSearch = run.mode == TrafficMode.ORGANIC_SEARCH
+            )
         }
         var attempt = 0
-        var result = perform(url, client)
+        var result = perform(url, client, run.deviceCategory, run.mode == TrafficMode.ORGANIC_SEARCH)
         while (!result.success && result.transient && attempt < 2) {
             attempt++
             delay(500L * (1 shl (attempt - 1)))
-            result = perform(url, client)
+            result = perform(url, client, run.deviceCategory, run.mode == TrafficMode.ORGANIC_SEARCH)
         }
         return result
     }
 
     /**
-     * Executes the page visit in an Android WebView with JavaScript enabled
-     * so that client-side analytics (Google Analytics, GTM, Meta Pixel, Cloudflare) fire properly.
+     * Executes the page visit in an Android WebView with stealth spoofing, human-like scrolling,
+     * and realistic dwell time so client-side analytics (GA4, GTM, Meta Pixel) register engaged visits.
      */
-    private suspend fun executeBrowserVisit(url: String, client: OkHttpClient): Attempt {
+    private suspend fun executeBrowserVisit(
+        url: String,
+        client: OkHttpClient,
+        category: DeviceCategory,
+        organicSearch: Boolean = false
+    ): Attempt {
         if (context == null) {
-            return perform(url, client)
+            return perform(url, client, category, organicSearch)
         }
 
-        val webViewAttempt = withTimeoutOrNull(18_000L) {
+        val browserUserAgent = DeviceCatalog.random(category).userAgent
+        val searchReferer = if (organicSearch) buildSearchReferrer(url) else getRandomReferrer()
+        val stealthScript = buildStealthScript()
+        val humanScrollScript = buildHumanBehaviorScript()
+        val webViewAttempt = withTimeoutOrNull(22_000L) {
             suspendCancellableCoroutine<Attempt> { continuation ->
                 val mainHandler = Handler(Looper.getMainLooper())
                 var webViewRef: WebView? = null
@@ -377,19 +393,30 @@ class TrafficExecutor(
                                 loadWithOverviewMode = true
                                 loadsImagesAutomatically = true
                                 mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                                userAgentString = getRandomUserAgent()
+                                userAgentString = browserUserAgent
                             }
 
                             val cookieManager = CookieManager.getInstance()
                             cookieManager.setAcceptCookie(true)
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                                cookieManager.setAcceptThirdPartyCookies(this, true)
+                            }
 
                             webViewClient = object : WebViewClient() {
+                                override fun onPageStarted(view: WebView?, startedUrl: String?, favicon: android.graphics.Bitmap?) {
+                                    super.onPageStarted(view, startedUrl, favicon)
+                                    view?.evaluateJavascript(stealthScript, null)
+                                }
+
                                 override fun onPageFinished(view: WebView?, finishedUrl: String?) {
                                     super.onPageFinished(view, finishedUrl)
                                     if (!isFinished) {
                                         isFinished = true
                                         mainHandler.removeCallbacks(timeout)
-                                        // Allow 1.2s for analytics scripts to execute HTTP beacons
+                                        view?.evaluateJavascript(stealthScript, null)
+                                        view?.evaluateJavascript(humanScrollScript, null)
+                                        // Dwell 2.5s..4.0s for human scroll + GA4/GTM engagement beacons
+                                        val dwellMs = Random.nextLong(2500L, 4000L)
                                         mainHandler.postDelayed({
                                             try {
                                                 destroy()
@@ -397,7 +424,7 @@ class TrafficExecutor(
                                             if (continuation.isActive) {
                                                 continuation.resume(Attempt(true))
                                             }
-                                        }, 1200)
+                                        }, dwellMs)
                                     }
                                 }
 
@@ -414,7 +441,11 @@ class TrafficExecutor(
                                 }
                             }
                         }
-                        webView.loadUrl(url)
+                        if (searchReferer.isNotBlank()) {
+                            webView.loadUrl(url, mapOf("Referer" to searchReferer))
+                        } else {
+                            webView.loadUrl(url)
+                        }
                     } catch (e: Exception) {
                         timeoutRunnable?.let { mainHandler.removeCallbacks(it) }
                         if (continuation.isActive) {
@@ -427,24 +458,29 @@ class TrafficExecutor(
 
         // If WebView could not initialize on this context, fall back to HTTP engine so traffic still runs.
         if (!webViewAttempt.success && webViewAttempt.error?.startsWith("WEBVIEW_UNAVAILABLE:") == true) {
-            return perform(url, client)
+            return perform(url, client, category, organicSearch)
         }
         return webViewAttempt
     }
 
-    private suspend fun perform(url: String, client: OkHttpClient): Attempt = withContext(Dispatchers.IO) {
+    private suspend fun perform(
+        url: String,
+        client: OkHttpClient,
+        category: DeviceCategory,
+        organicSearch: Boolean = false
+    ): Attempt = withContext(Dispatchers.IO) {
         try {
-            val userAgent = getRandomUserAgent()
-            val referer = getRandomReferrer()
+            val device = DeviceCatalog.random(category)
+            val userAgent = device.userAgent
+            val referer = if (organicSearch) buildSearchReferrer(url) else getRandomReferrer()
 
             val requestBuilder = Request.Builder()
                 .url(url)
                 .header("User-Agent", userAgent)
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
                 .header("Accept-Language", "en-US,en;q=0.9")
-                .header("Sec-Ch-Ua", "\"Chromium\";v=\"124\", \"Google Chrome\";v=\"124\", \"Not-A.Brand\";v=\"99\"")
-                .header("Sec-Ch-Ua-Mobile", if (userAgent.contains("Mobile")) "?1" else "?0")
-                .header("Sec-Ch-Ua-Platform", if (userAgent.contains("Android")) "\"Android\"" else if (userAgent.contains("iPhone")) "\"iOS\"" else "\"Windows\"")
+                .header("Sec-Ch-Ua-Mobile", if (device.isMobile) "?1" else "?0")
+                .header("Sec-Ch-Ua-Platform", "\"${device.platformHint}\"")
                 .header("Sec-Fetch-Dest", "document")
                 .header("Sec-Fetch-Mode", "navigate")
                 .header("Sec-Fetch-Site", "cross-site")
@@ -452,6 +488,9 @@ class TrafficExecutor(
                 .header("Upgrade-Insecure-Requests", "1")
                 .header("Cache-Control", "no-cache")
 
+            if (userAgent.contains("Chrome/", ignoreCase = true)) {
+                requestBuilder.header("Sec-Ch-Ua", "\"Chromium\";v=\"124\", \"Google Chrome\";v=\"124\", \"Not-A.Brand\";v=\"99\"")
+            }
             if (referer.isNotBlank()) {
                 requestBuilder.header("Referer", referer)
             }
@@ -475,16 +514,6 @@ class TrafficExecutor(
     }
 
     companion object {
-        private val USER_AGENTS = listOf(
-            "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UQ1A.240205.004) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.113 Mobile Safari/537.36",
-            "Mozilla/5.0 (Linux; Android 13; SM-S918B Build/TP1A.220624.014) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.6312.118 Mobile Safari/537.36",
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
-            "Mozilla/5.0 (Linux; Android 14; SM-A546B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0"
-        )
-
         private val REFERRERS = listOf(
             "https://www.google.com/",
             "https://www.google.com/search?q=website",
@@ -496,8 +525,46 @@ class TrafficExecutor(
             ""
         )
 
-        fun getRandomUserAgent(): String = USER_AGENTS[Random.nextInt(USER_AGENTS.size)]
         fun getRandomReferrer(): String = REFERRERS[Random.nextInt(REFERRERS.size)]
+
+        fun buildSearchReferrer(url: String): String {
+            val host = try {
+                URI(url).host?.removePrefix("www.") ?: "website"
+            } catch (_: Exception) {
+                "website"
+            }
+            val encoded = java.net.URLEncoder.encode(host, "UTF-8")
+            val engines = listOf(
+                "https://www.google.com/search?q=$encoded",
+                "https://www.bing.com/search?q=$encoded",
+                "https://duckduckgo.com/?q=$encoded"
+            )
+            return engines[Random.nextInt(engines.size)]
+        }
+
+        private fun buildStealthScript(): String = """
+            (function() {
+                try {
+                    Object.defineProperty(navigator, 'webdriver', { get: function() { return undefined; } });
+                    Object.defineProperty(navigator, 'languages', { get: function() { return ['en-US', 'en']; } });
+                    Object.defineProperty(navigator, 'hardwareConcurrency', { get: function() { return 8; } });
+                    Object.defineProperty(navigator, 'deviceMemory', { get: function() { return 8; } });
+                } catch (e) {}
+            })();
+        """.trimIndent()
+
+        private fun buildHumanBehaviorScript(): String = """
+            (function() {
+                try {
+                    window.dispatchEvent(new Event('focus'));
+                    var maxScroll = Math.max(document.body ? document.body.scrollHeight : 0, document.documentElement ? document.documentElement.scrollHeight : 0);
+                    var step1 = Math.min(350, Math.floor(maxScroll * 0.3));
+                    var step2 = Math.min(800, Math.floor(maxScroll * 0.65));
+                    setTimeout(function() { window.scrollBy({ top: step1, behavior: 'smooth' }); }, 400);
+                    setTimeout(function() { window.scrollBy({ top: step2, behavior: 'smooth' }); }, 1300);
+                } catch (e) {}
+            })();
+        """.trimIndent()
 
         fun createClient(): OkHttpClient = OkHttpClient.Builder()
             .dns(PublicOnlyDns())

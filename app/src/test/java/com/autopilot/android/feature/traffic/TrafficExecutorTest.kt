@@ -83,6 +83,36 @@ class TrafficExecutorTest {
         assertEquals(TrafficStatus.COMPLETED, result.status)
     }
 
+    @Test
+    fun executor_organicSearchModeSendsSearchReferrer() = runBlocking {
+        var capturedReferer: String? = null
+        val interceptor = Interceptor { chain ->
+            capturedReferer = chain.request().header("Referer")
+            Response.Builder()
+                .request(chain.request())
+                .protocol(Protocol.HTTP_1_1)
+                .code(200)
+                .message("ok")
+                .body("".toResponseBody("text/plain".toMediaType()))
+                .build()
+        }
+        val client = OkHttpClient.Builder().addInterceptor(interceptor).build()
+        val repository = FakeTrafficRepository(
+            newRun(planned = 1).copy(mode = TrafficMode.ORGANIC_SEARCH)
+        )
+
+        TrafficExecutor(repository, client = client).execute("run", 0)
+
+        val result = repository.getRun("run")!!
+        assertEquals(1, result.submitted)
+        assertNotNull(capturedReferer)
+        assertTrue(
+            capturedReferer!!.contains("google.com/search") ||
+                capturedReferer!!.contains("bing.com/search") ||
+                capturedReferer!!.contains("duckduckgo.com/")
+        )
+    }
+
     private fun newRun(planned: Int) = TrafficRun(
         id = "run",
         websiteUrl = "https://example.com",
