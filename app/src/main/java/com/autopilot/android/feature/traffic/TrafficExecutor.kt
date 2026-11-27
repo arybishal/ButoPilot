@@ -15,6 +15,8 @@ import com.autopilot.android.domain.model.proxy.ProxyProtocol
 import com.autopilot.android.feature.proxy.ProxyExecutionCoordinator
 import com.autopilot.android.feature.proxy.ProxyHealthChecker
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -77,6 +79,21 @@ class TrafficExecutor(
 
     suspend fun execute(runId: String, workAttempt: Int) = withContext(Dispatchers.IO) {
         val run = repository.getRun(runId) ?: return@withContext
+        if (run.status !in setOf(
+                TrafficStatus.QUEUED, TrafficStatus.RUNNING,
+                TrafficStatus.INTERRUPTED
+            )
+        ) return@withContext
+
+        // Transition to RUNNING immediately so UI never appears stuck on QUEUED at 0.
+        repository.updateProgress(
+            run.copy(
+                status = TrafficStatus.RUNNING,
+                startedAt = run.startedAt ?: System.currentTimeMillis(),
+                lastError = "Connecting..."
+            )
+        )
+
         val repo = proxyRepository
         val checker = proxyHealthChecker
         val coordinator = proxyExecutionCoordinator
@@ -90,7 +107,7 @@ class TrafficExecutor(
             return@withContext
         }
 
-        // Prioritize already-healthy proxies, then untested, and cap probing to avoid multi-minute stalls.
+        // Fast parallel probe (max 3 candidates, 2s timeout) prioritizing already-healthy proxies.
         val candidates = repo.getAllProxies()
             .filter { it.enabled }
             .sortedBy {
@@ -100,24 +117,28 @@ class TrafficExecutor(
                     else -> 2
                 }
             }
-            .take(8)
+            .take(3)
 
-        var proxy: ProxyConfiguration? = null
-        for (candidate in candidates) {
-            val result = try {
-                withTimeoutOrNull(3000L) { checker.checkHealth(candidate) }
-            } catch (_: Exception) {
-                null
-            }
-            repo.updateHealthStatus(
-                candidate.id,
-                result?.status ?: ProxyHealthStatus.TIMEOUT,
-                result?.latencyMs,
-                result?.errorMessage ?: "Proxy verification timed out"
-            )
-            if (result?.status == ProxyHealthStatus.HEALTHY) {
-                proxy = candidate
-                break
+        val proxy: ProxyConfiguration? = if (candidates.isEmpty()) {
+            null
+        } else {
+            coroutineScope {
+                candidates.map { candidate ->
+                    async {
+                        val result = try {
+                            withTimeoutOrNull(2000L) { checker.checkHealth(candidate) }
+                        } catch (_: Exception) {
+                            null
+                        }
+                        repo.updateHealthStatus(
+                            candidate.id,
+                            result?.status ?: ProxyHealthStatus.TIMEOUT,
+                            result?.latencyMs,
+                            result?.errorMessage ?: "Proxy verification timed out"
+                        )
+                        if (result?.status == ProxyHealthStatus.HEALTHY) candidate else null
+                    }
+                }.awaitAll().firstOrNull { it != null }
             }
         }
 

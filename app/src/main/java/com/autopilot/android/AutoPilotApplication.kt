@@ -122,7 +122,7 @@ class AutoPilotApplication : Application() {
             proxyHealthChecker = proxyHealthChecker,
             proxyExecutionCoordinator = proxyExecutionCoordinator
         )
-        trafficController = TrafficController(this, trafficRepository)
+        trafficController = TrafficController(this, trafficRepository, trafficExecutor)
 
         diagnosticsRepository = DiagnosticsRepositoryImpl(database.diagnosticDao())
         executionEventTracker = ExecutionEventTracker(database.executionEventDao())
