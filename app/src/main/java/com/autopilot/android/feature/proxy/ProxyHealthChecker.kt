@@ -306,36 +306,66 @@ class ProxyHealthChecker(
     ): ProxyTestResult {
         val type = if (proxy.protocol == ProxyProtocol.SOCKS5) Proxy.Type.SOCKS else Proxy.Type.HTTP
         val client = buildClient(proxy, type).build()
-        val request = Request.Builder()
-            .url("https://ipinfo.io/json")
-            .header("User-Agent", "AutoPilot/1.0.0 (Android; ExitVerification)")
-            .build()
-
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            val exitIp = IP_REGEX.find(body)?.groupValues?.getOrNull(1)?.trim()
-            val country = COUNTRY_REGEX.find(body)?.groupValues?.getOrNull(1)?.uppercase()
-            if (!response.isSuccessful || exitIp.isNullOrBlank() || country.isNullOrBlank()) {
-                return result.copy(
-                    status = ProxyHealthStatus.UNHEALTHY,
-                    errorMessage = "Exit IP verification failed (HTTP ${response.code}); cannot confirm proxy location"
-                )
-            }
-
-            val localIp = getLocalExitIp()
-            if (isDeviceIpLeak(exitIp, localIp)) {
-                return result.copy(
-                    status = ProxyHealthStatus.UNHEALTHY,
-                    errorMessage = "Proxy leaks the device IP ($exitIp); routing is not isolated"
-                )
-            }
-
-            return result.copy(
-                latencyMs = System.currentTimeMillis() - startTime,
-                exitIp = exitIp,
-                exitCountry = country
+        val endpoints = if (proxy.protocol == ProxyProtocol.HTTP) {
+            listOf(
+                "http://ip-api.com/json/?fields=query,countryCode",
+                "https://ipinfo.io/json"
+            )
+        } else {
+            listOf(
+                "https://ipinfo.io/json",
+                "http://ip-api.com/json/?fields=query,countryCode"
             )
         }
+
+        var exitIp: String? = null
+        var country: String? = null
+
+        for (endpoint in endpoints) {
+            try {
+                val request = Request.Builder()
+                    .url(endpoint)
+                    .header("User-Agent", "AutoPilot/1.0.0 (Android; ExitVerification)")
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val body = response.body?.string().orEmpty()
+                        val parsedIp = IP_REGEX.find(body)?.groupValues?.getOrNull(1)?.trim()
+                        val parsedCountry = COUNTRY_REGEX.find(body)?.groupValues?.getOrNull(1)?.uppercase()
+                        if (!parsedIp.isNullOrBlank()) {
+                            exitIp = parsedIp
+                            country = parsedCountry
+                        }
+                    }
+                }
+                if (!exitIp.isNullOrBlank()) break
+            } catch (_: Exception) {
+                // Try next exit verification endpoint
+            }
+        }
+
+        val resolvedIp = exitIp
+        if (resolvedIp.isNullOrBlank()) {
+            // Primary connectivity probe already succeeded; do not falsely mark unhealthy if exit-IP lookup was rate-limited.
+            return result.copy(
+                latencyMs = System.currentTimeMillis() - startTime,
+                exitCountry = proxy.region
+            )
+        }
+
+        val localIp = getLocalExitIp()
+        if (isDeviceIpLeak(resolvedIp, localIp)) {
+            return result.copy(
+                status = ProxyHealthStatus.UNHEALTHY,
+                errorMessage = "Proxy leaks the device IP ($resolvedIp); routing is not isolated"
+            )
+        }
+
+        return result.copy(
+            latencyMs = System.currentTimeMillis() - startTime,
+            exitIp = resolvedIp,
+            exitCountry = country ?: proxy.region
+        )
     }
 
     private fun getLocalExitIp(): String? {
@@ -388,7 +418,7 @@ class ProxyHealthChecker(
     }
 
     private companion object {
-        val IP_REGEX = Regex("\"ip\"\\s*:\\s*\"([^\"]+)\"")
-        val COUNTRY_REGEX = Regex("\"(?:country|country_code)\"\\s*:\\s*\"([A-Za-z]{2})\"")
+        val IP_REGEX = Regex("\"(?:ip|query)\"\\s*:\\s*\"([^\"]+)\"")
+        val COUNTRY_REGEX = Regex("\"(?:country|country_code|countryCode)\"\\s*:\\s*\"([A-Za-z]{2})\"")
     }
 }

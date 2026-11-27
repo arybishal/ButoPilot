@@ -317,13 +317,13 @@ fun ProxyListScreen(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Restore Default Proxies (60)") },
+                                text = { Text("Restore Default Proxies (200)") },
                                 leadingIcon = { Icon(Icons.Default.RestartAlt, contentDescription = null) },
                                 onClick = {
                                     showTopMenu = false
                                     scope.launch {
                                         proxyRepository.saveProxies(DefaultProxySeedData.getSeedProxies())
-                                        snackbarHostState.showSnackbar("Restored 60 default proxies.")
+                                        snackbarHostState.showSnackbar("Restored 200 default healthy proxies.")
                                     }
                                 }
                             )
@@ -1157,13 +1157,13 @@ fun ProxyListScreen(
                                 EmptyProxyState(
                                     title = if (proxies.isEmpty()) "No Proxies Found" else "No matching proxies",
                                     description = if (proxies.isEmpty())
-                                        "You currently have 0 proxies in the database. Tap below to reload the 60 default proxies or quick-add your own."
+                                        "You currently have 0 proxies in the database. Tap below to reload the 200 default healthy proxies or quick-add your own."
                                     else "Try clearing your search query or filter.",
-                                    actionText = if (proxies.isEmpty()) "Load Default Proxies (60)" else null,
+                                    actionText = if (proxies.isEmpty()) "Load Default Proxies (200)" else null,
                                     onAction = {
                                         scope.launch {
                                             proxyRepository.saveProxies(DefaultProxySeedData.getSeedProxies())
-                                            snackbarHostState.showSnackbar("Loaded 60 default proxies.")
+                                            snackbarHostState.showSnackbar("Loaded 200 default healthy proxies.")
                                         }
                                     }
                                 )
