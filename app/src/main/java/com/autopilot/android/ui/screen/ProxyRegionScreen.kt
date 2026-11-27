@@ -51,6 +51,10 @@ fun ProxyRegionScreen(
     val prefs = remember { context.getSharedPreferences("proxy_settings", Context.MODE_PRIVATE) }
     val coroutineScope = rememberCoroutineScope()
     val dbProxies by proxyRepository.getAllProxiesFlow().collectAsState(initial = emptyList())
+    val maintenanceManager = remember { com.autopilot.android.AutoPilotApplication.instance.proxyMaintenanceManager }
+    val maintenanceSettings by maintenanceManager.settings.collectAsState()
+    val maintenanceStatus by maintenanceManager.status.collectAsState()
+    val deletedLogs by maintenanceManager.deletedLogs.collectAsState()
     var isRefreshing by remember { mutableStateOf(false) }
 
     // Seed default proxy pool if database is empty or has 0 healthy proxies
@@ -199,21 +203,131 @@ fun ProxyRegionScreen(
                 .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // --- 1. Proxy Management Action ---
+            // --- 1. Proxy Management & Auto-Maintenance Settings (VPN Tab) ---
             item {
-                Row(
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.Center
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
-                    TextButton(onClick = onNavigateToProxyManager) {
-                        Text(
-                            text = "Manage All Proxies & Import List →",
-                            color = Color.Black,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Proxy Management Settings",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF0F172A)
+                                )
+                                Text(
+                                    text = maintenanceStatus.statusMessage,
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF2563EB),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                            TextButton(
+                                onClick = { maintenanceManager.triggerImmediateCycle() },
+                                enabled = !maintenanceStatus.isRunningCycle
+                            ) {
+                                Text(
+                                    if (maintenanceStatus.isRunningCycle) "Running..." else "Check Now",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Auto Background Health Check", fontSize = 13.sp, color = Color(0xFF334155))
+                            Switch(
+                                checked = maintenanceSettings.autoBackgroundHealthCheck,
+                                onCheckedChange = { checked ->
+                                    maintenanceManager.updateSettings { it.copy(autoBackgroundHealthCheck = checked) }
+                                }
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Auto-Delete Dead Proxies", fontSize = 13.sp, color = Color(0xFF334155))
+                                Text("${deletedLogs.size} deleted logged in Proxy Manager", fontSize = 11.sp, color = Color(0xFF64748B))
+                            }
+                            Switch(
+                                checked = maintenanceSettings.autoDeleteDeadProxies,
+                                onCheckedChange = { checked ->
+                                    maintenanceManager.updateSettings { it.copy(autoDeleteDeadProxies = checked) }
+                                }
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Auto-Search & Add Healthy Proxies", fontSize = 13.sp, color = Color(0xFF334155))
+                            Switch(
+                                checked = maintenanceSettings.autoFetchHealthyProxies,
+                                onCheckedChange = { checked ->
+                                    maintenanceManager.updateSettings { it.copy(autoFetchHealthyProxies = checked) }
+                                }
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Min Healthy Pool:", fontSize = 12.sp, color = Color(0xFF64748B))
+                            listOf(50, 100, 200).forEach { target ->
+                                FilterChip(
+                                    selected = maintenanceSettings.targetHealthyPoolSize == target,
+                                    onClick = {
+                                        maintenanceManager.updateSettings { it.copy(targetHealthyPoolSize = target) }
+                                    },
+                                    label = { Text("$target", fontSize = 11.sp) }
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = onNavigateToProxyManager,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF2563EB),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Text(
+                                "Open VPN & Proxy Management",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
                     }
                 }
             }

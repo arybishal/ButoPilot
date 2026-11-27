@@ -129,11 +129,13 @@ class MainActivity : ComponentActivity() {
                                         .fillMaxSize()
                                         .padding(bottom = 74.dp)
                                 ) {
+                                    val activeProxy by app.proxyExecutionCoordinator.activeProxy.collectAsState()
                                     when (page) {
                                         0 -> HomeScreen(
                                             profileRepository = profileRepository,
                                             scheduleRepository = scheduleRepository,
                                             coordinator = coordinator,
+                                            activeProxy = activeProxy,
                                             onNavigateToEditor = { profileId ->
                                                 navController.navigate("editor?profileId=${profileId ?: ""}")
                                             },

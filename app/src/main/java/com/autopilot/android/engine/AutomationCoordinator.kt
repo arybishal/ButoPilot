@@ -531,12 +531,22 @@ class AutomationCoordinator(
         if (checker != null) {
             val result = withTimeoutOrNull(5000L) { checker.checkHealth(proxy) }
             if (result == null || result.status != ProxyHealthStatus.HEALTHY) {
-                proxyRepository?.updateHealthStatus(
-                    proxy.id,
-                    result?.status ?: ProxyHealthStatus.TIMEOUT,
-                    result?.latencyMs,
-                    result?.errorMessage ?: "Proxy verification timed out"
-                )
+                val reason = result?.errorMessage ?: "Proxy verification timed out"
+                val dropped = try {
+                    com.autopilot.android.AutoPilotApplication.instance.proxyMaintenanceManager
+                        .dropDeadProxy(proxy, reason)
+                    true
+                } catch (_: Throwable) {
+                    false
+                }
+                if (!dropped) {
+                    proxyRepository?.updateHealthStatus(
+                        proxy.id,
+                        result?.status ?: ProxyHealthStatus.TIMEOUT,
+                        result?.latencyMs,
+                        reason
+                    )
+                }
                 return false
             }
             location = result.locationLabel

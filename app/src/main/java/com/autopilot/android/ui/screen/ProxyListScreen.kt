@@ -114,6 +114,8 @@ fun ProxyListScreen(
     var showImportDialog by remember { mutableStateOf(false) }
     val generatorManager = remember { AutoPilotApplication.instance.proxyGeneratorManager }
     val generatorState by generatorManager.state.collectAsState()
+    val maintenanceManager = remember { AutoPilotApplication.instance.proxyMaintenanceManager }
+    val deletedLogs by maintenanceManager.deletedLogs.collectAsState()
     var showDeleteSelectedDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(generatorState.completedSummary) {
@@ -160,7 +162,11 @@ fun ProxyListScreen(
                         val res = withContext(Dispatchers.IO) {
                             healthChecker.checkHealth(p)
                         }
-                        proxyRepository.updateHealthStatus(p.id, res.status, res.latencyMs, res.errorMessage)
+                        if (res.status == ProxyHealthStatus.HEALTHY) {
+                            proxyRepository.updateHealthStatus(p.id, res.status, res.latencyMs, res.errorMessage)
+                        } else {
+                            maintenanceManager.dropDeadProxy(p, res.errorMessage ?: res.status.displayName)
+                        }
                         batchMutex.withLock {
                             batchTestedCount++
                             if (res.status == ProxyHealthStatus.HEALTHY) {
@@ -794,7 +800,30 @@ fun ProxyListScreen(
                                 Text(
                                     "All (${proxies.size})",
                                     fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Medium,
-                                    fontSize = 12.sp,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                    )
+
+                    Tab(
+                        selected = selectedTab == 3,
+                        onClick = { selectedTab = 3 },
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.DeleteSweep,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = if (selectedTab == 3) Color(0xFFDC2626) else Color(0xFF94A3B8)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    "Deleted (${deletedLogs.size})",
+                                    fontWeight = if (selectedTab == 3) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 11.sp,
                                     maxLines = 1,
                                     softWrap = false
                                 )
@@ -1103,9 +1132,14 @@ fun ProxyListScreen(
                                         scope.launch {
                                             testingProxyId = proxy.id
                                             val result = healthChecker.checkHealth(proxy)
-                                            proxyRepository.updateHealthStatus(proxy.id, result.status, result.latencyMs, result.errorMessage)
+                                            if (result.status == ProxyHealthStatus.HEALTHY) {
+                                                proxyRepository.updateHealthStatus(proxy.id, result.status, result.latencyMs, result.errorMessage)
+                                                snackbarHostState.showSnackbar("${proxy.host}:${proxy.port} -> Healthy (${result.latencyMs ?: 0}ms)")
+                                            } else {
+                                                maintenanceManager.dropDeadProxy(proxy, result.errorMessage ?: result.status.displayName)
+                                                snackbarHostState.showSnackbar("Dropped dead proxy ${proxy.host}:${proxy.port} (${result.status.displayName})")
+                                            }
                                             testingProxyId = null
-                                            snackbarHostState.showSnackbar("${proxy.host}:${proxy.port} -> ${result.status.displayName}, exit ${result.locationLabel}")
                                         }
                                     },
                                     onToggleEnabled = { enabled ->
@@ -1182,9 +1216,14 @@ fun ProxyListScreen(
                                         scope.launch {
                                             testingProxyId = proxy.id
                                             val result = healthChecker.checkHealth(proxy)
-                                            proxyRepository.updateHealthStatus(proxy.id, result.status, result.latencyMs, result.errorMessage)
+                                            if (result.status == ProxyHealthStatus.HEALTHY) {
+                                                proxyRepository.updateHealthStatus(proxy.id, result.status, result.latencyMs, result.errorMessage)
+                                                snackbarHostState.showSnackbar("${proxy.host}:${proxy.port} -> Healthy (${result.latencyMs ?: 0}ms)")
+                                            } else {
+                                                maintenanceManager.dropDeadProxy(proxy, result.errorMessage ?: result.status.displayName)
+                                                snackbarHostState.showSnackbar("Dropped dead proxy ${proxy.host}:${proxy.port} (${result.status.displayName})")
+                                            }
                                             testingProxyId = null
-                                            snackbarHostState.showSnackbar("${proxy.host}:${proxy.port} -> ${result.status.displayName}, exit ${result.locationLabel}")
                                         }
                                     },
                                     onToggleEnabled = { enabled ->
@@ -1197,6 +1236,96 @@ fun ProxyListScreen(
                                     onEditClick = { onNavigateToEditor(proxy.id) },
                                     onDeleteClick = { proxyToDelete = proxy }
                                 )
+                            }
+                        }
+                    }
+                }
+
+                else -> {
+                    // DELETED DEAD PROXIES LOG TAB
+                    item(key = "deleted_log_header") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Auto-Deleted Dead Proxies (${deletedLogs.size})",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = Color(0xFF334155)
+                            )
+                            if (deletedLogs.isNotEmpty()) {
+                                TextButton(
+                                    onClick = { maintenanceManager.clearDeletedLogs() },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(28.dp)
+                                ) {
+                                    Text("Clear Log", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                                }
+                            }
+                        }
+                    }
+
+                    if (deletedLogs.isEmpty()) {
+                        item(key = "deleted_log_empty") {
+                            Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                                EmptyProxyState(
+                                    title = "No Deleted Proxies Logged",
+                                    description = "Dead or disconnected proxies dropped during health checks or automations will appear here.",
+                                    actionText = null,
+                                    onAction = {}
+                                )
+                            }
+                        }
+                    } else {
+                        items(deletedLogs, key = { it.id }) { entry ->
+                            val timeText = remember(entry.deletedAt) {
+                                java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
+                                    .format(java.util.Date(entry.deletedAt))
+                            }
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2)),
+                                border = BorderStroke(1.dp, Color(0xFFFECACA))
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "${getProxyCountryFlag(entry.region)} ${entry.protocol} ${entry.host}:${entry.port}",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = Color(0xFF0F172A),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = entry.reason,
+                                            fontSize = 11.sp,
+                                            color = Color(0xFFB91C1C),
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = timeText,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFF64748B)
+                                    )
+                                }
                             }
                         }
                     }

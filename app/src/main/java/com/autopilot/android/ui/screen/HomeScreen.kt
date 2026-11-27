@@ -112,6 +112,7 @@ fun HomeScreen(
     profileRepository: ProfileRepository,
     scheduleRepository: ScheduleRepository,
     coordinator: AutomationCoordinator,
+    activeProxy: com.autopilot.android.domain.model.proxy.ProxyConfiguration? = null,
     onNavigateToEditor: (String?) -> Unit,
     onNavigateToScheduleEditor: (String?) -> Unit,
     onNavigateToAutomationsTab: () -> Unit,
@@ -280,6 +281,18 @@ fun HomeScreen(
                             text = "Ready to deploy high-concurrency browser tasks.",
                             fontSize = 13.sp,
                             color = Color(0xFF64748B)
+                        )
+                    }
+                    val homeProxyBadge = formatConnectedProxyCountryBadge(
+                        countryCode = activeProxy?.region ?: engineState.currentProxyCountryCode,
+                        location = engineState.currentProxyLocation,
+                        isProxyConnected = activeProxy != null || engineState.currentProxyName != null
+                    )
+                    if (homeProxyBadge != null) {
+                        HomeTagBadge(
+                            label = homeProxyBadge,
+                            bg = Color(0xFFECFDF5),
+                            fg = Color(0xFF065F46)
                         )
                     }
                 }

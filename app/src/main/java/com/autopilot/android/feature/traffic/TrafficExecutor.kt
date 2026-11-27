@@ -141,13 +141,28 @@ class TrafficExecutor(
                         } catch (_: Exception) {
                             null
                         }
-                        repo.updateHealthStatus(
-                            candidate.id,
-                            result?.status ?: ProxyHealthStatus.TIMEOUT,
-                            result?.latencyMs,
-                            result?.errorMessage ?: "Proxy verification timed out"
-                        )
-                        if (result?.status == ProxyHealthStatus.HEALTHY) candidate else null
+                        val reason = result?.errorMessage ?: "Proxy verification timed out"
+                        if (result?.status == ProxyHealthStatus.HEALTHY) {
+                            repo.updateHealthStatus(candidate.id, result.status, result.latencyMs, null)
+                            candidate
+                        } else {
+                            val dropped = try {
+                                com.autopilot.android.AutoPilotApplication.instance.proxyMaintenanceManager
+                                    .dropDeadProxy(candidate, reason)
+                                true
+                            } catch (_: Throwable) {
+                                false
+                            }
+                            if (!dropped) {
+                                repo.updateHealthStatus(
+                                    candidate.id,
+                                    result?.status ?: ProxyHealthStatus.TIMEOUT,
+                                    result?.latencyMs,
+                                    reason
+                                )
+                            }
+                            null
+                        }
                     }
                 }.awaitAll().filterNotNull()
             }

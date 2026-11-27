@@ -22,6 +22,7 @@ import com.autopilot.android.feature.diagnostics.execution.ExecutionEventTracker
 import com.autopilot.android.feature.proxy.AutomaticProxyGeneratorManager
 import com.autopilot.android.feature.proxy.ProxyExecutionCoordinator
 import com.autopilot.android.feature.proxy.ProxyHealthChecker
+import com.autopilot.android.feature.proxy.ProxyMaintenanceManager
 import com.autopilot.android.feature.recovery.RecoveryManager
 import com.autopilot.android.feature.scheduling.notification.ScheduleNotificationManager
 import com.autopilot.android.feature.scheduling.service.AutomationScheduler
@@ -73,6 +74,9 @@ class AutoPilotApplication : Application() {
     lateinit var proxyGeneratorManager: AutomaticProxyGeneratorManager
         private set
 
+    lateinit var proxyMaintenanceManager: ProxyMaintenanceManager
+        private set
+
     lateinit var diagnosticsRepository: DiagnosticsRepository
         private set
 
@@ -120,6 +124,13 @@ class AutoPilotApplication : Application() {
         proxyExecutionCoordinator = ProxyExecutionCoordinator()
         proxyHealthChecker = ProxyHealthChecker(verifyExit = true)
         proxyGeneratorManager = AutomaticProxyGeneratorManager(proxyRepository, proxyHealthChecker)
+        proxyMaintenanceManager = ProxyMaintenanceManager(
+            context = this,
+            proxyRepository = proxyRepository,
+            healthChecker = proxyHealthChecker,
+            proxyExecutionCoordinator = proxyExecutionCoordinator
+        )
+        proxyMaintenanceManager.startBackgroundLoop()
         trafficExecutor = TrafficExecutor(
             trafficRepository,
             context = this,
