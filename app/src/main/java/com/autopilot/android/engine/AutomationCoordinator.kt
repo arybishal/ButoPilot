@@ -658,23 +658,57 @@ class AutomationCoordinator(
 
         val prefs = context.getSharedPreferences("proxy_settings", Context.MODE_PRIVATE)
         val preferredRegion = prefs.getString("preferred_proxy_region", "AUTO") ?: "AUTO"
-
-        // Sort: preferred region first, verified HEALTHY first (by lowest latency), then UNTESTED, then others
-        val sorted = allProxies.sortedWith(
-            compareBy<ProxyConfiguration> {
-                if (preferredRegion != "AUTO") {
-                    val matches = if (preferredRegion == "UNKNOWN") it.region.isNullOrBlank()
-                    else it.region?.equals(preferredRegion, ignoreCase = true) == true
-                    if (matches) 0 else 1
-                } else 0
-            }.thenBy {
-                when (it.lastHealthStatus) {
-                    ProxyHealthStatus.HEALTHY -> 0
-                    ProxyHealthStatus.UNTESTED -> 1
-                    else -> 2
-                }
-            }.thenBy { it.lastLatencyMs ?: Long.MAX_VALUE }
+        val selectionMode = com.autopilot.android.feature.proxy.AutomationProxyPreferences.getMode(
+            context,
+            activeProfile?.id
         )
+        val topTierCodes = com.autopilot.android.feature.proxy.AutomaticProxyGenerator.countryCodesForTier(
+            com.autopilot.android.feature.proxy.ProxyTier.TOP_TIER
+        )
+
+        var candidatePool = if (selectionMode == com.autopilot.android.feature.proxy.FreeProxySelectionMode.TOP_TIER_ONLY) {
+            allProxies.filter { proxy ->
+                val code = CountryCodeValidator.normalize(proxy.region)
+                code != null && topTierCodes.contains(code)
+            }
+        } else {
+            allProxies
+        }
+
+        if (candidatePool.isEmpty() && selectionMode == com.autopilot.android.feature.proxy.FreeProxySelectionMode.TOP_TIER_ONLY) {
+            try {
+                val genRes = com.autopilot.android.feature.proxy.AutomaticProxyGenerator().generate(
+                    request = com.autopilot.android.feature.proxy.ProxyGenerationRequest(
+                        countries = topTierCodes,
+                        tier = com.autopilot.android.feature.proxy.ProxyTier.TOP_TIER,
+                        quantity = 60
+                    ),
+                    existingProxies = allProxies
+                )
+                if (genRes.success && genRes.generatedProxies.isNotEmpty()) {
+                    repo.saveProxies(genRes.generatedProxies)
+                    candidatePool = genRes.generatedProxies
+                }
+            } catch (_: Exception) {}
+        }
+
+        if (candidatePool.isEmpty()) return null
+
+        // Sort: preferred region first, verified HEALTHY first; shuffle for RANDOM mode.
+        val healthyPool = candidatePool.filter { it.lastHealthStatus == ProxyHealthStatus.HEALTHY }
+        val otherPool = candidatePool.filter { it.lastHealthStatus != ProxyHealthStatus.HEALTHY }
+        val orderedPool = if (selectionMode == com.autopilot.android.feature.proxy.FreeProxySelectionMode.RANDOM) {
+            healthyPool.shuffled() + otherPool.shuffled()
+        } else {
+            healthyPool.sortedBy { it.lastLatencyMs ?: Long.MAX_VALUE } + otherPool
+        }
+        val sorted = orderedPool.sortedBy {
+            if (preferredRegion != "AUTO") {
+                val matches = if (preferredRegion == "UNKNOWN") it.region.isNullOrBlank()
+                else it.region?.equals(preferredRegion, ignoreCase = true) == true
+                if (matches) 0 else 1
+            } else 0
+        }
 
         val now = System.currentTimeMillis()
         // Probe candidates to guarantee the proxy can route HTTP traffic cleanly
@@ -746,19 +780,30 @@ class AutomationCoordinator(
 
         if (allProxies.isEmpty()) return false
 
-        val currentActive = activeVerifiedProxy ?: proxyExecutionCoordinator?.activeProxy?.value
-        val sortedHealthyFirst = allProxies.sortedWith(
-            compareBy<ProxyConfiguration>(
-                {
-                    when (it.lastHealthStatus) {
-                        ProxyHealthStatus.HEALTHY -> 0
-                        ProxyHealthStatus.UNTESTED -> 1
-                        else -> 2
-                    }
-                },
-                { it.lastLatencyMs ?: Long.MAX_VALUE }
-            )
+        val selectionMode = com.autopilot.android.feature.proxy.AutomationProxyPreferences.getMode(
+            context,
+            activeProfile?.id
         )
+        val topTierCodes = com.autopilot.android.feature.proxy.AutomaticProxyGenerator.countryCodesForTier(
+            com.autopilot.android.feature.proxy.ProxyTier.TOP_TIER
+        )
+        val modeFiltered = if (selectionMode == com.autopilot.android.feature.proxy.FreeProxySelectionMode.TOP_TIER_ONLY) {
+            allProxies.filter { proxy ->
+                val code = CountryCodeValidator.normalize(proxy.region)
+                code != null && topTierCodes.contains(code)
+            }.ifEmpty { allProxies }
+        } else {
+            allProxies
+        }
+
+        val currentActive = activeVerifiedProxy ?: proxyExecutionCoordinator?.activeProxy?.value
+        val healthyPool = modeFiltered.filter { it.lastHealthStatus == ProxyHealthStatus.HEALTHY }
+        val otherPool = modeFiltered.filter { it.lastHealthStatus != ProxyHealthStatus.HEALTHY }
+        val sortedHealthyFirst = if (selectionMode == com.autopilot.android.feature.proxy.FreeProxySelectionMode.RANDOM) {
+            healthyPool.shuffled() + otherPool.shuffled()
+        } else {
+            healthyPool.sortedBy { it.lastLatencyMs ?: Long.MAX_VALUE } + otherPool
+        }
         val candidates = if (sortedHealthyFirst.size > 1 && currentActive != null) {
             sortedHealthyFirst.filter { it.id != currentActive.id } + listOf(currentActive)
         } else {

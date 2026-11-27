@@ -56,6 +56,7 @@ fun CreateAutomationScreen(
 ) {
     val coroutineScope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     var profileName by remember { mutableStateOf("") }
     var urlsText by remember { mutableStateOf("") }
@@ -68,6 +69,7 @@ fun CreateAutomationScreen(
     var selectedMode by remember { mutableStateOf(ExecutionMode.SIMPLE_SCROLL_REFRESH) }
     var customScript by remember { mutableStateOf("") }
     var enableFreeProxy by remember { mutableStateOf(false) }
+    var freeProxyMode by remember { mutableStateOf(com.autopilot.android.feature.proxy.FreeProxySelectionMode.RANDOM) }
 
     var showRefreshDropdown by remember { mutableStateOf(false) }
     var showScrollDropdown by remember { mutableStateOf(false) }
@@ -90,6 +92,7 @@ fun CreateAutomationScreen(
                 selectedMode = existing.executionMode
                 customScript = existing.customScript ?: ""
                 enableFreeProxy = existing.enableFreeProxy
+                freeProxyMode = com.autopilot.android.feature.proxy.AutomationProxyPreferences.getMode(context, existing.id)
             }
         }
     }
@@ -852,6 +855,39 @@ if (btn) { btn.click(); console.log('Clicked: ' + btn.innerText); }"""
                         checked = enableFreeProxy,
                         onCheckedChange = { enableFreeProxy = it }
                     )
+
+                    AnimatedVisibility(visible = enableFreeProxy) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 8.dp, top = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "Proxy Selection Mode",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                                color = Color(0xFF0F172A)
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                com.autopilot.android.feature.proxy.FreeProxySelectionMode.entries.forEach { modeOption ->
+                                    FilterChip(
+                                        selected = freeProxyMode == modeOption,
+                                        onClick = { freeProxyMode = modeOption },
+                                        label = { Text(modeOption.label, fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+                            Text(
+                                text = freeProxyMode.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF64748B)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -881,6 +917,7 @@ if (btn) { btn.click(); console.log('Clicked: ' + btn.innerText); }"""
                                     enableFreeProxy = enableFreeProxy,
                                     updatedAt = System.currentTimeMillis()
                                 )
+                                com.autopilot.android.feature.proxy.AutomationProxyPreferences.setMode(context, newProfile.id, freeProxyMode)
                                 profileRepository.saveProfile(newProfile)
                                 coordinator.start(newProfile)
                                 onNavigateToMonitor()
@@ -954,6 +991,7 @@ if (btn) { btn.click(); console.log('Clicked: ' + btn.innerText); }"""
                                     enableFreeProxy = enableFreeProxy,
                                     updatedAt = System.currentTimeMillis()
                                 )
+                                com.autopilot.android.feature.proxy.AutomationProxyPreferences.setMode(context, updatedProfile.id, freeProxyMode)
                                 profileRepository.saveProfile(updatedProfile)
                                 onNavigateBack()
                             }
@@ -1001,6 +1039,7 @@ if (btn) { btn.click(); console.log('Clicked: ' + btn.innerText); }"""
                                     enableFreeProxy = enableFreeProxy,
                                     updatedAt = System.currentTimeMillis()
                                 )
+                                com.autopilot.android.feature.proxy.AutomationProxyPreferences.setMode(context, updatedProfile.id, freeProxyMode)
                                 profileRepository.saveProfile(updatedProfile)
                                 coordinator.start(updatedProfile)
                                 onNavigateToMonitor()

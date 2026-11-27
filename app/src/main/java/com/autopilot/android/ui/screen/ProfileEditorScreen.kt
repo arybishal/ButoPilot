@@ -38,6 +38,8 @@ fun ProfileEditorScreen(
 ) {
     val proxies by (proxyRepository?.getAllProxiesFlow() ?: flowOf(emptyList())).collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var freeProxyMode by remember { mutableStateOf(com.autopilot.android.feature.proxy.FreeProxySelectionMode.RANDOM) }
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var urlsText by remember { mutableStateOf("") }
@@ -79,6 +81,7 @@ fun ProfileEditorScreen(
                 enableSpoofing = existing.enableSpoofing
                 deviceCategory = existing.deviceCategory
                 enableFreeProxy = existing.enableFreeProxy
+                freeProxyMode = com.autopilot.android.feature.proxy.AutomationProxyPreferences.getMode(context, existing.id)
                 customScript = existing.customScript ?: ""
                 allowedDomainsText = existing.allowedDomains.joinToString(", ")
                 clearCookies = existing.clearCookiesOnStart
@@ -132,6 +135,7 @@ fun ProfileEditorScreen(
                                 updatedAt = System.currentTimeMillis()
                             )
                             scope.launch {
+                                com.autopilot.android.feature.proxy.AutomationProxyPreferences.setMode(context, profile.id, freeProxyMode)
                                 profileRepository.saveProfile(profile)
                                 onNavigateBack()
                             }
@@ -529,6 +533,32 @@ fun ProfileEditorScreen(
                     Text("Automatically route through available free public proxies", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                 }
                 Switch(checked = enableFreeProxy, onCheckedChange = { enableFreeProxy = it })
+            }
+
+            if (enableFreeProxy) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("Proxy Selection Mode", fontWeight = FontWeight.SemiBold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        com.autopilot.android.feature.proxy.FreeProxySelectionMode.entries.forEach { modeOption ->
+                            FilterChip(
+                                selected = freeProxyMode == modeOption,
+                                onClick = { freeProxyMode = modeOption },
+                                label = { Text(modeOption.label) }
+                            )
+                        }
+                    }
+                    Text(
+                        text = freeProxyMode.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
             }
 
             val isConfiguredProxyMissing = selectedProxyId != null && proxies.none { it.id == selectedProxyId }
