@@ -46,6 +46,7 @@ data class AutomationProfile(
     val minScrollIntervalSec: Int = 10,
     val maxScrollIntervalSec: Int = 25,
     val enableSpoofing: Boolean = false,
+    val deviceCategory: DeviceCategory = DeviceCategory.ALL,
     val enableFreeProxy: Boolean = false,
     val customScript: String? = null,
     val allowedDomains: List<String> = emptyList(),

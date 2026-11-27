@@ -6,6 +6,7 @@ import com.autopilot.android.data.repository.HistoryRepository
 import com.autopilot.android.data.repository.ProfileRepository
 import com.autopilot.android.data.repository.ProxyRepository
 import com.autopilot.android.domain.model.AutomationProfile
+import com.autopilot.android.domain.model.DeviceCatalog
 import com.autopilot.android.domain.model.ExecutionHistoryItem
 import com.autopilot.android.domain.model.ExecutionMode
 import com.autopilot.android.domain.model.ProfileStatus
@@ -113,7 +114,7 @@ class AutomationCoordinator(
                     // Reload tabs immediately so they recover and open the website with updated routing
                     withContext(Dispatchers.Main) {
                         for (i in 0 until _engineState.value.totalTabs) {
-                            webViewManager.reloadTab(i)
+                            webViewManager.reloadTab(i, activeProfile?.let(::randomWebViewUserAgent))
                         }
                     }
                 }
@@ -216,9 +217,15 @@ class AutomationCoordinator(
 
                 if (profile.enableSpoofing) {
                     val spoofManager = deviceSpoofManager
+                    val device = DeviceCatalog.random(profile.deviceCategory)
+                    val spoofValues = com.autopilot.android.core.system.SpoofValues(
+                        model = device.model,
+                        manufacturer = device.manufacturer,
+                        versionRelease = device.versionRelease
+                    )
                     val result = if (spoofManager != null &&
                         com.autopilot.android.core.system.RootChecker.checkRootAccess()
-                    ) spoofManager.apply() else null
+                    ) spoofManager.apply(spoofValues) else null
                     eventTracker?.recordEvent(
                         executionId = currentExecutionId,
                         profileId = profile.id,
@@ -226,7 +233,7 @@ class AutomationCoordinator(
                         message = when {
                             spoofManager == null -> "Device spoofing unavailable (manager not configured)"
                             result == null -> "Device spoofing requested (root not granted)"
-                            result.ok -> "Device spoofing applied to ${result.applied} properties"
+                            result.ok -> "Device spoofing applied to ${result.applied} properties (${device.label})"
                             else -> "Device spoofing partly applied (${result.applied} ok, ${result.failed} failed)"
                         }
                     )
@@ -377,7 +384,7 @@ class AutomationCoordinator(
                                     webViewAvailable = false
                                     break
                                 }
-                                webViewManager.loadUrl(tabIdx, targetUrl)
+                                webViewManager.loadUrl(tabIdx, targetUrl, randomWebViewUserAgent(prof))
                             }
                         }
                         globalTabOffset = endIdx
@@ -448,7 +455,7 @@ class AutomationCoordinator(
             if (webViewManager.getWebView(currentTab) == null) {
                 val urls = if (profile.urls.isNotEmpty()) profile.urls else listOf("https://example.com")
                 val targetUrl = urls[relativeTab % urls.size]
-                val statusDesc = executeHeadlessHttpVisit(targetUrl, profile.userAgent)
+                val statusDesc = executeHeadlessHttpVisit(targetUrl, profile)
                 _engineState.value = _engineState.value.copy(
                     statusMessage = "Headless HTTP (${profile.name}): $statusDesc"
                 )
@@ -729,7 +736,7 @@ class AutomationCoordinator(
             )
             withContext(Dispatchers.Main) {
                 for (i in 0 until _engineState.value.totalTabs) {
-                    webViewManager.reloadTab(i)
+                    webViewManager.reloadTab(i, activeProfile?.let(::randomWebViewUserAgent))
                 }
             }
             return true
@@ -857,7 +864,7 @@ class AutomationCoordinator(
                     eventType = ExecutionEventType.WEBVIEW_INITIALIZED,
                     message = "Tab $tabIdx initialized"
                 )
-                webViewManager.loadUrl(tabIdx, targetUrl)
+                webViewManager.loadUrl(tabIdx, targetUrl, randomWebViewUserAgent(profile))
                 eventTracker?.recordEvent(
                     executionId = currentExecutionId,
                     profileId = profile.id,
@@ -960,7 +967,7 @@ class AutomationCoordinator(
             if (!scope.isActive) break
 
             val targetUrl = urls[currentTab % urls.size]
-            val resultLabel = executeHeadlessHttpVisit(targetUrl, profile.userAgent)
+            val resultLabel = executeHeadlessHttpVisit(targetUrl, profile)
             totalActionsExecuted++
             _engineState.value = _engineState.value.copy(
                 totalActions = totalActionsExecuted,
@@ -979,7 +986,10 @@ class AutomationCoordinator(
         }
     }
 
-    private suspend fun executeHeadlessHttpVisit(url: String, userAgent: String?): String =
+    private fun randomWebViewUserAgent(profile: AutomationProfile): String? =
+        profile.userAgent?.takeIf { it.isNotBlank() } ?: DeviceCatalog.random(profile.deviceCategory).userAgent
+
+    private suspend fun executeHeadlessHttpVisit(url: String, profile: AutomationProfile): String =
         withContext(Dispatchers.IO) {
             try {
                 val activeProxy = proxyExecutionCoordinator?.activeProxy?.value
@@ -1007,8 +1017,8 @@ class AutomationCoordinator(
                     }
                 }
 
-                val ua = userAgent?.takeIf { it.isNotBlank() }
-                    ?: "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                val ua = profile.userAgent?.takeIf { it.isNotBlank() }
+                    ?: DeviceCatalog.random(profile.deviceCategory).userAgent
                 val request = okhttp3.Request.Builder()
                     .url(url)
                     .header("User-Agent", ua)
@@ -1053,7 +1063,7 @@ class AutomationCoordinator(
         delay(refreshDelayMs)
 
         withContext(Dispatchers.Main) {
-            webViewManager.reloadTab(tabIndex)
+            webViewManager.reloadTab(tabIndex, randomWebViewUserAgent(profile))
         }
     }
 
@@ -1081,7 +1091,7 @@ class AutomationCoordinator(
         )
         delay(refreshDelayMs)
         withContext(Dispatchers.Main) {
-            webViewManager.reloadTab(tabIndex)
+            webViewManager.reloadTab(tabIndex, randomWebViewUserAgent(profile))
         }
     }
 

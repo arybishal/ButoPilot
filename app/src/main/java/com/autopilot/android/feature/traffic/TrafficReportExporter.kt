@@ -24,6 +24,7 @@ object TrafficReportExporter {
         row("events_per_minute", run.speed.eventsPerMinute.toString())
         row("concurrency", run.concurrency.toString())
         row("page_paths", run.pagePaths.joinToString(" | "))
+        row("device_spoof", run.deviceCategory.label)
         row("last_error", run.lastError.orEmpty())
         append("note,\"Counters are HTTP responses, not GA4-recorded events\"\n")
     }

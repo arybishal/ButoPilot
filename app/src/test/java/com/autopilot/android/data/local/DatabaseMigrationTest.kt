@@ -56,4 +56,11 @@ class DatabaseMigrationTest {
         assertEquals(6, migration.startVersion)
         assertEquals(7, migration.endVersion)
     }
+
+    @Test
+    fun testMigration7To8SqlSyntax() {
+        val migration = AutoPilotDatabase.MIGRATION_7_8
+        assertEquals(7, migration.startVersion)
+        assertEquals(8, migration.endVersion)
+    }
 }

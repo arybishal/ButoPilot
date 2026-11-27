@@ -39,7 +39,7 @@ import com.autopilot.android.data.local.entity.ScheduleEntity
         BackupRecordEntity::class,
         TrafficRunEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -236,6 +236,13 @@ abstract class AutoPilotDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `traffic_runs` ADD COLUMN `deviceCategory` TEXT NOT NULL DEFAULT 'ALL'")
+                db.execSQL("ALTER TABLE `automation_profiles` ADD COLUMN `deviceCategory` TEXT NOT NULL DEFAULT 'ALL'")
+            }
+        }
+
         fun getInstance(context: Context): AutoPilotDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -243,7 +250,7 @@ abstract class AutoPilotDatabase : RoomDatabase() {
                     AutoPilotDatabase::class.java,
                     "autopilot_database.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

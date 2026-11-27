@@ -1,6 +1,8 @@
 package com.autopilot.android.feature.traffic
 
 import com.autopilot.android.data.repository.TrafficRepository
+import com.autopilot.android.domain.model.DeviceCatalog
+import com.autopilot.android.domain.model.DeviceCategory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
@@ -10,6 +12,7 @@ import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
+import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.*
@@ -113,6 +116,25 @@ class TrafficExecutorTest {
         )
     }
 
+    @Test
+    fun executor_usesRandomDeviceFromSelectedCategoryForEveryRequest() = runBlocking {
+        val userAgents = mutableListOf<String>()
+        val client = fakeClient(
+            onRequest = { request -> userAgents.add(request.header("User-Agent").orEmpty()) },
+            code = { 200 }
+        )
+        val repository = FakeTrafficRepository(
+            newRun(planned = 12).copy(deviceCategory = DeviceCategory.MACBOOK_SILICON)
+        )
+
+        TrafficExecutor(repository, client = client).execute("run", 0)
+
+        assertEquals(12, userAgents.size)
+        assertTrue(userAgents.all { it.isNotBlank() })
+        assertTrue(userAgents.all { ua -> DeviceCatalog.forCategory(DeviceCategory.MACBOOK_SILICON).any { it.userAgent == ua } })
+        assertTrue(userAgents.toSet().size > 1)
+    }
+
     private fun newRun(planned: Int) = TrafficRun(
         id = "run",
         websiteUrl = "https://example.com",
@@ -124,8 +146,9 @@ class TrafficExecutorTest {
         status = TrafficStatus.QUEUED
     )
 
-    private fun fakeClient(code: () -> Int): OkHttpClient {
+    private fun fakeClient(onRequest: (Request) -> Unit = {}, code: () -> Int): OkHttpClient {
         val interceptor = Interceptor { chain: Interceptor.Chain ->
+            onRequest(chain.request())
             Response.Builder()
                 .request(chain.request())
                 .protocol(Protocol.HTTP_1_1)

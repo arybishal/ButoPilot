@@ -20,6 +20,8 @@ import androidx.compose.ui.unit.sp
 import com.autopilot.android.data.repository.ProfileRepository
 import com.autopilot.android.data.repository.ProxyRepository
 import com.autopilot.android.domain.model.AutomationProfile
+import com.autopilot.android.domain.model.DeviceCatalog
+import com.autopilot.android.domain.model.DeviceCategory
 import com.autopilot.android.domain.model.ExecutionMode
 import com.autopilot.android.domain.validation.UrlValidator
 import kotlinx.coroutines.flow.flowOf
@@ -53,6 +55,7 @@ fun ProfileEditorScreen(
     var clearCookies by remember { mutableStateOf(false) }
     var clearCache by remember { mutableStateOf(false) }
     var enableSpoofing by remember { mutableStateOf(false) }
+    var deviceCategory by remember { mutableStateOf(DeviceCategory.ALL) }
     var enableFreeProxy by remember { mutableStateOf(false) }
     var selectedProxyId by remember { mutableStateOf<String?>(null) }
     var isLoaded by remember { mutableStateOf(false) }
@@ -74,6 +77,7 @@ fun ProfileEditorScreen(
                 minScrollSec = existing.minScrollIntervalSec
                 maxScrollSec = existing.maxScrollIntervalSec
                 enableSpoofing = existing.enableSpoofing
+                deviceCategory = existing.deviceCategory
                 enableFreeProxy = existing.enableFreeProxy
                 customScript = existing.customScript ?: ""
                 allowedDomainsText = existing.allowedDomains.joinToString(", ")
@@ -118,6 +122,7 @@ fun ProfileEditorScreen(
                                 minScrollIntervalSec = minScrollSec,
                                 maxScrollIntervalSec = maxScrollSec,
                                 enableSpoofing = enableSpoofing,
+                                deviceCategory = deviceCategory,
                                 enableFreeProxy = enableFreeProxy,
                                 customScript = customScript.takeIf { it.isNotBlank() },
                                 allowedDomains = allowedDomains,
@@ -233,6 +238,31 @@ fun ProfileEditorScreen(
                     Text("Requires root access to spoof hardware and build props", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
                 Switch(checked = enableSpoofing, onCheckedChange = { enableSpoofing = it })
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Device Pool", fontWeight = FontWeight.SemiBold)
+            Text(
+                "A new random device from this pool is used on every request",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF64748B)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                DeviceCategory.entries.forEach { category ->
+                    FilterChip(
+                        selected = deviceCategory == category,
+                        onClick = { deviceCategory = category },
+                        label = {
+                            Text(
+                                "${category.label} (${DeviceCatalog.count(category)})",
+                                fontSize = 11.sp
+                            )
+                        }
+                    )
+                }
             }
 
             Divider()

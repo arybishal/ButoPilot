@@ -3,6 +3,7 @@ package com.autopilot.android.data.local.entity
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.autopilot.android.domain.model.AutomationProfile
+import com.autopilot.android.domain.model.DeviceCategory
 import com.autopilot.android.domain.model.ExecutionMode
 import com.autopilot.android.domain.model.ProfileStatus
 
@@ -22,6 +23,7 @@ data class ProfileEntity(
     val minScrollIntervalSec: Int,
     val maxScrollIntervalSec: Int,
     val enableSpoofing: Boolean = false,
+    val deviceCategory: String = DeviceCategory.ALL.name,
     val enableFreeProxy: Boolean = false,
     // Kept to match the v7 schema identity; no longer used now that Auto Human Behaviour is a mode.
     val enableHumanBehaviourScript: Boolean = false,

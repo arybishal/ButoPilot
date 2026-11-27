@@ -15,7 +15,6 @@ data class SpoofValues(
     val manufacturer: String = "Google",
     val versionRelease: String = "14"
 ) {
-    // shortcut: fixed preset, add profile fields when values must be user-selectable
     val props: Map<String, String> = linkedMapOf(
         "ro.product.model" to model,
         "ro.product.manufacturer" to manufacturer,
@@ -96,7 +95,7 @@ class DeviceSpoofManager(
     private val snapshots: SpoofSnapshotStore,
     private val values: SpoofValues = SpoofValues()
 ) {
-    suspend fun apply(): SpoofApplyResult = withContext(Dispatchers.IO) {
+    suspend fun apply(values: SpoofValues = this.values): SpoofApplyResult = withContext(Dispatchers.IO) {
         // Never treat already-spoofed values as originals after a crashed run.
         if (snapshots.load().isNotEmpty()) {
             restore()

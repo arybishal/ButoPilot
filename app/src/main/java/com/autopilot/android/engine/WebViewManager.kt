@@ -81,6 +81,9 @@ class WebViewManager(
 
                     if (!profile.userAgent.isNullOrBlank()) {
                         userAgentString = profile.userAgent
+                    } else if (profile.enableSpoofing) {
+                        userAgentString = com.autopilot.android.domain.model.DeviceCatalog
+                            .random(profile.deviceCategory).userAgent
                     }
                 }
 
@@ -350,9 +353,10 @@ class WebViewManager(
     /**
      * Navigates the target tab to a URL.
      */
-    fun loadUrl(tabIndex: Int, url: String) {
+    fun loadUrl(tabIndex: Int, url: String, userAgent: String? = null) {
         mainHandler.post {
             val wv = webViewMap[tabIndex] ?: return@post
+            if (!userAgent.isNullOrBlank()) wv.settings.userAgentString = userAgent
             wv.loadUrl(url)
         }
     }
@@ -360,9 +364,10 @@ class WebViewManager(
     /**
      * Reloads the target tab.
      */
-    fun reloadTab(tabIndex: Int) {
+    fun reloadTab(tabIndex: Int, userAgent: String? = null) {
         mainHandler.post {
             val wv = webViewMap[tabIndex] ?: return@post
+            if (!userAgent.isNullOrBlank()) wv.settings.userAgentString = userAgent
             updateTabState(tabIndex) { it.copy(lastRefreshTime = System.currentTimeMillis()) }
             wv.reload()
         }

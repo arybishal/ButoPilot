@@ -36,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.autopilot.android.data.repository.ProfileRepository
 import com.autopilot.android.domain.model.AutomationProfile
+import com.autopilot.android.domain.model.DeviceCatalog
+import com.autopilot.android.domain.model.DeviceCategory
 import com.autopilot.android.domain.model.ExecutionMode
 import com.autopilot.android.domain.validation.UrlValidator
 import com.autopilot.android.engine.AutomationCoordinator
@@ -61,6 +63,7 @@ fun CreateAutomationScreen(
     var refreshIntervalSec by remember { mutableIntStateOf(30) }
     var scrollIntervalSec by remember { mutableIntStateOf(10) }
     var enableSpoofing by remember { mutableStateOf(false) }
+    var deviceCategory by remember { mutableStateOf(DeviceCategory.ALL) }
     var randomizeIntervals by remember { mutableStateOf(true) }
     var selectedMode by remember { mutableStateOf(ExecutionMode.SIMPLE_SCROLL_REFRESH) }
     var customScript by remember { mutableStateOf("") }
@@ -82,6 +85,7 @@ fun CreateAutomationScreen(
                 refreshIntervalSec = existing.refreshIntervalSec
                 scrollIntervalSec = existing.scrollIntervalSec
                 enableSpoofing = existing.enableSpoofing
+                deviceCategory = existing.deviceCategory
                 randomizeIntervals = existing.randomizeIntervals
                 selectedMode = existing.executionMode
                 customScript = existing.customScript ?: ""
@@ -814,6 +818,32 @@ if (btn) { btn.click(); console.log('Clicked: ' + btn.innerText); }"""
 
                     HorizontalDivider(color = Color(0xFFF1F5F9))
 
+                    Text("Device Pool", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    Text(
+                        "A new random device from this pool is used on every request",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF64748B)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        DeviceCategory.entries.forEach { category ->
+                            FilterChip(
+                                selected = deviceCategory == category,
+                                onClick = { deviceCategory = category },
+                                label = {
+                                    Text(
+                                        "${category.label} (${DeviceCatalog.count(category)})",
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = Color(0xFFF1F5F9))
+
                     // Enable Free Proxy
                     ToggleRow(
                         title = "Enable Free Proxy",
@@ -845,6 +875,7 @@ if (btn) { btn.click(); console.log('Clicked: ' + btn.innerText); }"""
                                     refreshIntervalSec = refreshIntervalSec,
                                     scrollIntervalSec = scrollIntervalSec,
                                     enableSpoofing = enableSpoofing,
+                                    deviceCategory = deviceCategory,
                                     randomizeIntervals = randomizeIntervals,
                                     customScript = customScript.takeIf { it.isNotBlank() },
                                     enableFreeProxy = enableFreeProxy,
@@ -917,6 +948,7 @@ if (btn) { btn.click(); console.log('Clicked: ' + btn.innerText); }"""
                                     refreshIntervalSec = refreshIntervalSec,
                                     scrollIntervalSec = scrollIntervalSec,
                                     enableSpoofing = enableSpoofing,
+                                    deviceCategory = deviceCategory,
                                     randomizeIntervals = randomizeIntervals,
                                     customScript = customScript.takeIf { it.isNotBlank() },
                                     enableFreeProxy = enableFreeProxy,
@@ -963,6 +995,7 @@ if (btn) { btn.click(); console.log('Clicked: ' + btn.innerText); }"""
                                     refreshIntervalSec = refreshIntervalSec,
                                     scrollIntervalSec = scrollIntervalSec,
                                     enableSpoofing = enableSpoofing,
+                                    deviceCategory = deviceCategory,
                                     randomizeIntervals = randomizeIntervals,
                                     customScript = customScript.takeIf { it.isNotBlank() },
                                     enableFreeProxy = enableFreeProxy,

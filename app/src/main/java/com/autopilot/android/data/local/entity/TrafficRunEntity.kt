@@ -3,6 +3,7 @@ package com.autopilot.android.data.local.entity
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.autopilot.android.domain.model.DeviceCategory
 
 @Entity(
     tableName = "traffic_runs",
@@ -22,5 +23,6 @@ data class TrafficRunEntity(
     val lastError: String?,
     val createdAt: Long,
     val startedAt: Long?,
-    val completedAt: Long?
+    val completedAt: Long?,
+    val deviceCategory: String = DeviceCategory.ALL.name
 )

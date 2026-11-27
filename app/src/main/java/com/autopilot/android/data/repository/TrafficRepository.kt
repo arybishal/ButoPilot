@@ -2,6 +2,7 @@ package com.autopilot.android.data.repository
 
 import com.autopilot.android.data.local.dao.TrafficDao
 import com.autopilot.android.data.local.entity.TrafficRunEntity
+import com.autopilot.android.domain.model.DeviceCategory
 import com.autopilot.android.feature.traffic.TrafficMode
 import com.autopilot.android.feature.traffic.TrafficRun
 import com.autopilot.android.feature.traffic.TrafficSpeed
@@ -72,7 +73,8 @@ private fun TrafficRunEntity.toDomain(gson: Gson): TrafficRun {
         lastError = lastError,
         createdAt = createdAt,
         startedAt = startedAt,
-        completedAt = completedAt
+        completedAt = completedAt,
+        deviceCategory = safeEnum(deviceCategory, DeviceCategory.ALL)
     )
 }
 
@@ -90,7 +92,8 @@ private fun TrafficRun.toEntity(gson: Gson): TrafficRunEntity = TrafficRunEntity
     lastError = lastError,
     createdAt = createdAt,
     startedAt = startedAt,
-    completedAt = completedAt
+    completedAt = completedAt,
+    deviceCategory = deviceCategory.name
 )
 
 private inline fun <reified T : Enum<T>> safeEnum(value: String, fallback: T): T = try {
