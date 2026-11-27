@@ -240,11 +240,18 @@ class AutomationCoordinator(
             } catch (e: CancellationException) {
                 // Normal cancellation on stop
             } catch (e: Exception) {
+                val category = if (e.message?.contains("WebView", ignoreCase = true) == true ||
+                    e.cause?.javaClass?.simpleName?.contains("WebView", ignoreCase = true) == true
+                ) {
+                    ExecutionErrorCategory.WEBVIEW_INITIALIZATION_FAILED
+                } else {
+                    ExecutionErrorCategory.UNKNOWN_ERROR
+                }
                 eventTracker?.recordEvent(
                     executionId = currentExecutionId,
                     profileId = profile.id,
                     eventType = ExecutionEventType.EXECUTION_FAILED,
-                    errorCategory = ExecutionErrorCategory.UNKNOWN_ERROR,
+                    errorCategory = category,
                     message = "Execution loop encountered exception: ${e.message}"
                 )
                 _engineState.value = _engineState.value.copy(
@@ -353,6 +360,7 @@ class AutomationCoordinator(
                 var globalTabOffset = 0
                 val profileTabRanges = mutableListOf<Triple<AutomationProfile, Int, Int>>()
 
+                var webViewAvailable = true
                 withContext(Dispatchers.Main) {
                     for (prof in profiles) {
                         val tabCount = prof.tabCount.coerceIn(1, 200)
@@ -361,22 +369,32 @@ class AutomationCoordinator(
                         profileTabRanges.add(Triple(prof, startIdx, endIdx))
 
                         val urls = if (prof.urls.isNotEmpty()) prof.urls else listOf("https://example.com")
-                        for (tabIdx in startIdx until endIdx) {
-                            val targetUrl = urls[(tabIdx - startIdx) % urls.size]
-                            webViewManager.createOrGetTab(tabIdx, prof)
-                            webViewManager.loadUrl(tabIdx, targetUrl)
+                        if (webViewAvailable) {
+                            for (tabIdx in startIdx until endIdx) {
+                                val targetUrl = urls[(tabIdx - startIdx) % urls.size]
+                                val created = webViewManager.createOrGetTab(tabIdx, prof)
+                                if (created == null) {
+                                    webViewAvailable = false
+                                    break
+                                }
+                                webViewManager.loadUrl(tabIdx, targetUrl)
+                            }
                         }
                         globalTabOffset = endIdx
                         if (globalTabOffset >= 200) break
                     }
-                    if (globalTabOffset > 0) {
+                    if (webViewAvailable && globalTabOffset > 0) {
                         webViewManager.selectTab(0)
                     }
                 }
 
                 _engineState.value = _engineState.value.copy(
                     totalTabs = globalTabOffset,
-                    statusMessage = "All ${profiles.size} automations running concurrently across $globalTabOffset tabs."
+                    statusMessage = if (webViewAvailable) {
+                        "All ${profiles.size} automations running concurrently across $globalTabOffset tabs."
+                    } else {
+                        "WebView unavailable; running ${profiles.size} automations in headless HTTP mode."
+                    }
                 )
 
                 // Launch parallel worker for each profile
@@ -427,22 +445,39 @@ class AutomationCoordinator(
 
             val currentTab = startTab + relativeTab
 
-            when (profile.executionMode) {
-                ExecutionMode.SIMPLE_SCROLL_REFRESH -> {
-                    executeSimpleScrollRefresh(profile, currentTab)
-                }
-                ExecutionMode.DEEP_SCROLL -> {
-                    executeDeepScroll(profile, currentTab)
-                }
-                ExecutionMode.AUTO_HUMAN_BEHAVIOUR -> {
-                    delay(1000L)
-                }
-                ExecutionMode.TAB_SWITCHING -> {
-                    executeTabSwitching(profile, currentTab)
-                    relativeTab = (relativeTab + 1) % tabSpan
-                }
-                ExecutionMode.CUSTOM_JAVASCRIPT -> {
-                    executeSandboxedJavaScript(profile, currentTab)
+            if (webViewManager.getWebView(currentTab) == null) {
+                val urls = if (profile.urls.isNotEmpty()) profile.urls else listOf("https://example.com")
+                val targetUrl = urls[relativeTab % urls.size]
+                val statusDesc = executeHeadlessHttpVisit(targetUrl, profile.userAgent)
+                _engineState.value = _engineState.value.copy(
+                    statusMessage = "Headless HTTP (${profile.name}): $statusDesc"
+                )
+                val waitMs = IntervalCalculator.getNextRefreshDelayMs(
+                    profile.refreshIntervalSec,
+                    profile.randomizeIntervals,
+                    profile.minRefreshIntervalSec,
+                    profile.maxRefreshIntervalSec
+                )
+                delay(waitMs.coerceAtLeast(1000L))
+                relativeTab = (relativeTab + 1) % tabSpan
+            } else {
+                when (profile.executionMode) {
+                    ExecutionMode.SIMPLE_SCROLL_REFRESH -> {
+                        executeSimpleScrollRefresh(profile, currentTab)
+                    }
+                    ExecutionMode.DEEP_SCROLL -> {
+                        executeDeepScroll(profile, currentTab)
+                    }
+                    ExecutionMode.AUTO_HUMAN_BEHAVIOUR -> {
+                        delay(1000L)
+                    }
+                    ExecutionMode.TAB_SWITCHING -> {
+                        executeTabSwitching(profile, currentTab)
+                        relativeTab = (relativeTab + 1) % tabSpan
+                    }
+                    ExecutionMode.CUSTOM_JAVASCRIPT -> {
+                        executeSandboxedJavaScript(profile, currentTab)
+                    }
                 }
             }
 
@@ -807,10 +842,15 @@ class AutomationCoordinator(
         )
 
         // Step 1: Initialize all configured tabs on UI thread
+        var headlessFallback = false
         withContext(Dispatchers.Main) {
             for (tabIdx in 0 until totalTabs) {
                 val targetUrl = urls[tabIdx % urls.size]
-                webViewManager.createOrGetTab(tabIdx, profile)
+                val created = webViewManager.createOrGetTab(tabIdx, profile)
+                if (created == null) {
+                    headlessFallback = true
+                    break
+                }
                 eventTracker?.recordEvent(
                     executionId = currentExecutionId,
                     profileId = profile.id,
@@ -825,7 +865,24 @@ class AutomationCoordinator(
                     message = "Tab $tabIdx loading: ${ExecutionEventTracker.sanitizeUrl(targetUrl)}"
                 )
             }
-            webViewManager.selectTab(0)
+            if (!headlessFallback) {
+                webViewManager.selectTab(0)
+            }
+        }
+
+        if (headlessFallback) {
+            eventTracker?.recordEvent(
+                executionId = currentExecutionId,
+                profileId = profile.id,
+                eventType = ExecutionEventType.WEBVIEW_INITIALIZED,
+                message = "WebView provider not installed; running in headless HTTP fallback mode"
+            )
+            _engineState.value = _engineState.value.copy(
+                totalTabs = totalTabs,
+                statusMessage = "WebView unavailable; running headless HTTP mode ($totalTabs virtual tabs)..."
+            )
+            runHeadlessHttpLoop(profile, urls, totalTabs)
+            return
         }
 
         _engineState.value = _engineState.value.copy(
@@ -880,6 +937,91 @@ class AutomationCoordinator(
             )
         }
     }
+
+    private suspend fun runHeadlessHttpLoop(
+        profile: AutomationProfile,
+        urls: List<String>,
+        totalTabs: Int
+    ) {
+        var currentTab = 0
+        while (scope.isActive) {
+            if (resourceManager.isMemoryCriticallyLow()) {
+                _engineState.value = _engineState.value.copy(
+                    statusMessage = "Memory low (<150MB). Pausing briefly for GC..."
+                )
+                System.gc()
+                delay(5000)
+                continue
+            }
+
+            while (isPaused && scope.isActive) {
+                delay(500)
+            }
+            if (!scope.isActive) break
+
+            val targetUrl = urls[currentTab % urls.size]
+            val resultLabel = executeHeadlessHttpVisit(targetUrl, profile.userAgent)
+            totalActionsExecuted++
+            _engineState.value = _engineState.value.copy(
+                totalActions = totalActionsExecuted,
+                activeTabIndex = currentTab,
+                statusMessage = "Headless HTTP Tab $currentTab: $resultLabel"
+            )
+
+            val refreshDelayMs = IntervalCalculator.getNextRefreshDelayMs(
+                profile.refreshIntervalSec,
+                profile.randomizeIntervals,
+                profile.minRefreshIntervalSec,
+                profile.maxRefreshIntervalSec
+            )
+            delay(refreshDelayMs.coerceAtLeast(1000L))
+            currentTab = (currentTab + 1) % totalTabs
+        }
+    }
+
+    private suspend fun executeHeadlessHttpVisit(url: String, userAgent: String?): String =
+        withContext(Dispatchers.IO) {
+            try {
+                val activeProxy = proxyExecutionCoordinator?.activeProxy?.value
+                val clientBuilder = okhttp3.OkHttpClient.Builder()
+                    .connectTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
+                    .followRedirects(true)
+                    .followSslRedirects(true)
+
+                if (activeProxy != null) {
+                    val proxyType = if (activeProxy.protocol == com.autopilot.android.domain.model.proxy.ProxyProtocol.SOCKS5) {
+                        java.net.Proxy.Type.SOCKS
+                    } else {
+                        java.net.Proxy.Type.HTTP
+                    }
+                    clientBuilder.proxy(java.net.Proxy(proxyType, java.net.InetSocketAddress(activeProxy.host, activeProxy.port)))
+                    val user = activeProxy.credentials?.username
+                    val pass = activeProxy.credentials?.password
+                    if (!user.isNullOrBlank() && !pass.isNullOrBlank()) {
+                        clientBuilder.proxyAuthenticator { _, response ->
+                            response.request.newBuilder()
+                                .header("Proxy-Authorization", okhttp3.Credentials.basic(user, pass))
+                                .build()
+                        }
+                    }
+                }
+
+                val ua = userAgent?.takeIf { it.isNotBlank() }
+                    ?: "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                val request = okhttp3.Request.Builder()
+                    .url(url)
+                    .header("User-Agent", ua)
+                    .get()
+                    .build()
+
+                clientBuilder.build().newCall(request).execute().use { response ->
+                    "HTTP ${response.code}"
+                }
+            } catch (e: Exception) {
+                "HTTP Error: ${e.message?.take(60) ?: "request failed"}"
+            }
+        }
 
     private suspend fun executeSimpleScrollRefresh(profile: AutomationProfile, tabIndex: Int) {
         val scrollDelayMs = IntervalCalculator.getNextScrollDelayMs(

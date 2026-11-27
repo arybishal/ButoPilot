@@ -44,12 +44,24 @@ class WebViewManager(
     private val _activeWebView = MutableStateFlow<WebView?>(null)
     val activeWebView: StateFlow<WebView?> = _activeWebView.asStateFlow()
 
+    fun isWebViewAvailable(): Boolean = try {
+        androidx.webkit.WebViewCompat.getCurrentWebViewPackage(context) != null
+    } catch (_: Throwable) {
+        false
+    }
+
     /**
      * Initializes a tab WebView with proper security and engine settings.
+     * Returns null if no WebView provider is installed or WebView initialization fails.
      */
-    fun createOrGetTab(tabIndex: Int, profile: AutomationProfile): WebView {
-        val webView = webViewMap.getOrPut(tabIndex) {
-            val webView = WebView(context).apply {
+    fun createOrGetTab(tabIndex: Int, profile: AutomationProfile): WebView? {
+        webViewMap[tabIndex]?.let { existing ->
+            if (tabIndex == _activeTabIndex.value) _activeWebView.value = existing
+            return existing
+        }
+
+        val webView = try {
+            val wv = WebView(context).apply {
                 visibility = View.VISIBLE
                 settings.apply {
                     javaScriptEnabled = true
@@ -266,7 +278,10 @@ class WebViewManager(
                 tabIndex = tabIndex,
                 currentUrl = ""
             )
-            webView
+            webViewMap[tabIndex] = wv
+            wv
+        } catch (_: Throwable) {
+            return null
         }
         if (tabIndex == _activeTabIndex.value) _activeWebView.value = webView
         return webView
