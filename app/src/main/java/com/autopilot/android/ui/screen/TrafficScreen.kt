@@ -50,6 +50,20 @@ fun TrafficScreen(
     val scope = rememberCoroutineScope()
     val runs by repository.observeRuns().collectAsState(initial = emptyList())
     val activeRun = runs.firstOrNull { it.isActive }
+    val suggestedSites = remember(runs) {
+        runs.map { it.websiteUrl.trim() }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.lowercase() }
+            .map { url ->
+                val domain = try {
+                    java.net.URI(url).host?.removePrefix("www.")?.takeIf { it.isNotBlank() } ?: url
+                } catch (_: Exception) {
+                    url
+                }
+                domain to url
+            }
+            .take(10)
+    }
 
     var urlText by remember { mutableStateOf("") }
     var mode by remember { mutableStateOf(TrafficMode.REAL_BROWSER) }
@@ -395,6 +409,45 @@ fun TrafficScreen(
                             fontSize = 12.sp,
                             color = Color(0xFFEF4444)
                         )
+                    }
+
+                    if (suggestedSites.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Suggested Domains",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF64748B)
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            suggestedSites.forEach { (domain, fullUrl) ->
+                                AssistChip(
+                                    onClick = { urlText = fullUrl },
+                                    label = {
+                                        Text(
+                                            text = domain,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            maxLines = 1
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Language,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(15.dp),
+                                            tint = Color(0xFF1565C0)
+                                        )
+                                    }
+                                )
+                            }
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))

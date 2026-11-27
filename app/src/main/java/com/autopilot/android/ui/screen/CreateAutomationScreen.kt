@@ -90,6 +90,24 @@ fun CreateAutomationScreen(
         }
     }
 
+    val existingProfiles by profileRepository.getAllProfilesFlow().collectAsState(initial = emptyList())
+    val suggestedSites = remember(existingProfiles) {
+        existingProfiles
+            .flatMap { it.urls }
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.lowercase() }
+            .map { url ->
+                val domain = try {
+                    java.net.URI(url).host?.removePrefix("www.")?.takeIf { it.isNotBlank() } ?: url
+                } catch (_: Exception) {
+                    url
+                }
+                domain to url
+            }
+            .take(12)
+    }
+
     val (validUrls, invalidUrls) = remember(urlsText) {
         UrlValidator.parseMultiple(urlsText)
     }
@@ -282,6 +300,54 @@ fun CreateAutomationScreen(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
                 )
+
+                if (suggestedSites.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Suggested Domains",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF64748B)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        suggestedSites.forEach { (domain, fullUrl) ->
+                            val isAlreadyAdded = validUrls.any { it.equals(fullUrl, ignoreCase = true) }
+                            AssistChip(
+                                onClick = {
+                                    if (!isAlreadyAdded) {
+                                        urlsText = if (urlsText.isBlank()) {
+                                            fullUrl
+                                        } else {
+                                            "${urlsText.trimEnd()}\n$fullUrl"
+                                        }
+                                    }
+                                },
+                                label = {
+                                    Text(
+                                        text = domain,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = if (isAlreadyAdded) Icons.Default.Check else Icons.Default.Language,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp),
+                                        tint = if (isAlreadyAdded) Color(0xFF15803D) else Color(0xFF1565C0)
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
 
                 if (urlsText.isNotBlank()) {
                     Spacer(modifier = Modifier.height(8.dp))
