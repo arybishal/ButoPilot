@@ -461,6 +461,8 @@ class TrafficExecutor(
                 val code = response.code
                 when {
                     code in 200..399 -> Attempt(true)
+                    code == 401 -> Attempt(false, "HTTP 401: Target URL requires authentication/password protection")
+                    code == 403 -> Attempt(false, "HTTP 403: Access forbidden by target server")
                     code == 408 || code in 500..599 -> Attempt(false, "HTTP $code", transient = true)
                     else -> Attempt(false, "HTTP $code")
                 }
