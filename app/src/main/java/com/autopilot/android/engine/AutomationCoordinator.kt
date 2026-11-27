@@ -47,7 +47,9 @@ data class EngineState(
     val currentProxyName: String? = null,
     val currentProxyLocation: String? = null,
     val currentProxyCountryCode: String? = null,
-    val nextProxyRotationSeconds: Long = 600L
+    val nextProxyRotationSeconds: Long = 600L,
+    val currentSpoofDeviceLabel: String? = null,
+    val isHeadlessHttpMode: Boolean = false
 )
 
 class AutomationCoordinator(
@@ -70,6 +72,8 @@ class AutomationCoordinator(
     private var timerJob: Job? = null
     private var proxyRotationJob: Job? = null
     private var isPaused = false
+    @Volatile
+    private var activeVerifiedProxy: ProxyConfiguration? = null
 
     private var activeProfile: AutomationProfile? = null
     private var activeProfilesList: List<AutomationProfile> = emptyList()
@@ -226,6 +230,9 @@ class AutomationCoordinator(
                     val result = if (spoofManager != null &&
                         com.autopilot.android.core.system.RootChecker.checkRootAccess()
                     ) spoofManager.apply(spoofValues) else null
+                    _engineState.value = _engineState.value.copy(
+                        currentSpoofDeviceLabel = device.label
+                    )
                     eventTracker?.recordEvent(
                         executionId = currentExecutionId,
                         profileId = profile.id,
@@ -554,8 +561,11 @@ class AutomationCoordinator(
         }
 
         if (relock) coordinator.acquireAndApply(proxy) else coordinator.updateProxy(proxy)
-        if (!coordinator.isProxyActive.value) return false
+        val canUseHeadlessHttpProxy = !webViewManager.isWebViewAvailable() ||
+            !com.autopilot.android.feature.proxy.ProxyCompatibilityChecker.isProxyOverrideSupported()
+        if (!coordinator.isProxyActive.value && !canUseHeadlessHttpProxy) return false
 
+        activeVerifiedProxy = proxy
         _engineState.value = _engineState.value.copy(
             statusMessage = "Connected through proxy: ${proxy.name} (${location ?: "location unknown"})",
             currentProxyName = "${proxy.name} (${proxy.protocol.displayName} ${proxy.host}:${proxy.port})",
@@ -580,6 +590,7 @@ class AutomationCoordinator(
         val freeProxy = if (profile.enableFreeProxy) obtainHealthyFreeProxy() else null
         if (freeProxy != null && applyVerifiedProxy(freeProxy)) return true
 
+        activeVerifiedProxy = null
         coordinator.acquireAndApply(null)
         _engineState.value = _engineState.value.copy(
             statusMessage = "No verified proxy available; running with direct connection (location not masked).",
@@ -723,26 +734,38 @@ class AutomationCoordinator(
 
         if (allProxies.isEmpty()) return false
 
-        val currentActive = proxyExecutionCoordinator?.activeProxy?.value
-        val candidates = if (allProxies.size > 1 && currentActive != null) {
-            allProxies.filter { it.id != currentActive.id } + listOf(currentActive)
+        val currentActive = activeVerifiedProxy ?: proxyExecutionCoordinator?.activeProxy?.value
+        val sortedHealthyFirst = allProxies.sortedWith(
+            compareBy<ProxyConfiguration>(
+                {
+                    when (it.lastHealthStatus) {
+                        ProxyHealthStatus.HEALTHY -> 0
+                        ProxyHealthStatus.UNTESTED -> 1
+                        else -> 2
+                    }
+                },
+                { it.lastLatencyMs ?: Long.MAX_VALUE }
+            )
+        )
+        val candidates = if (sortedHealthyFirst.size > 1 && currentActive != null) {
+            sortedHealthyFirst.filter { it.id != currentActive.id } + listOf(currentActive)
         } else {
-            allProxies
+            sortedHealthyFirst
         }
 
-        for (candidate in candidates) {
+        for (candidate in candidates.take(10)) {
             if (!applyVerifiedProxy(candidate, relock = false)) continue
             val proxyDesc = "${candidate.name} (${candidate.protocol.displayName} ${candidate.host}:${candidate.port})"
             _engineState.value = _engineState.value.copy(
                 currentProxyName = proxyDesc,
                 nextProxyRotationSeconds = 600L,
-                statusMessage = "Auto-rotated to healthy proxy: ${candidate.name}"
+                statusMessage = "Rotated to healthy proxy: ${candidate.name}"
             )
             eventTracker?.recordEvent(
                 executionId = currentExecutionId,
                 profileId = activeProfile?.id ?: "multi",
                 eventType = ExecutionEventType.PROXY_SELECTED,
-                message = "10-Minute Auto-Rotation: Switched to healthy proxy $proxyDesc"
+                message = "Proxy Rotation: Switched to healthy proxy $proxyDesc"
             )
             withContext(Dispatchers.Main) {
                 for (i in 0 until _engineState.value.totalTabs) {
@@ -759,7 +782,68 @@ class AutomationCoordinator(
      */
     fun rotateProxyNow() {
         scope.launch {
-            rotateToNextHealthyProxy()
+            _engineState.value = _engineState.value.copy(
+                statusMessage = "Rotating to next healthy proxy..."
+            )
+            val rotated = rotateToNextHealthyProxy()
+            if (!rotated) {
+                _engineState.value = _engineState.value.copy(
+                    statusMessage = "No other verified healthy proxy available to rotate."
+                )
+            }
+        }
+    }
+
+    /**
+     * Rotates the spoofed device profile (system properties when rooted + browser User-Agent).
+     */
+    fun rotateSpoofDeviceNow() {
+        scope.launch {
+            val category = activeProfile?.deviceCategory ?: com.autopilot.android.domain.model.DeviceCategory.ALL
+            val currentLabel = _engineState.value.currentSpoofDeviceLabel
+            var nextDevice = DeviceCatalog.random(category)
+            if (currentLabel != null) {
+                repeat(4) {
+                    if (nextDevice.label != currentLabel) return@repeat
+                    nextDevice = DeviceCatalog.random(category)
+                }
+            }
+
+            val spoofManager = deviceSpoofManager
+            val appliedRoot = if (spoofManager != null &&
+                com.autopilot.android.core.system.RootChecker.checkRootAccess()
+            ) {
+                spoofManager.apply(
+                    com.autopilot.android.core.system.SpoofValues(
+                        model = nextDevice.model,
+                        manufacturer = nextDevice.manufacturer,
+                        versionRelease = nextDevice.versionRelease
+                    )
+                ).ok
+            } else {
+                false
+            }
+
+            _engineState.value = _engineState.value.copy(
+                currentSpoofDeviceLabel = nextDevice.label,
+                statusMessage = if (appliedRoot) {
+                    "Rotated spoof device & UA to ${nextDevice.label}"
+                } else {
+                    "Rotated browser device profile to ${nextDevice.label}"
+                }
+            )
+            eventTracker?.recordEvent(
+                executionId = currentExecutionId,
+                profileId = activeProfile?.id ?: "multi",
+                eventType = ExecutionEventType.PROFILE_VALIDATED,
+                message = "Rotated spoof device to ${nextDevice.label}"
+            )
+
+            withContext(Dispatchers.Main) {
+                for (i in 0 until _engineState.value.totalTabs) {
+                    webViewManager.reloadTab(i, nextDevice.userAgent)
+                }
+            }
         }
     }
 
@@ -896,6 +980,7 @@ class AutomationCoordinator(
             )
             _engineState.value = _engineState.value.copy(
                 totalTabs = totalTabs,
+                isHeadlessHttpMode = true,
                 statusMessage = "WebView unavailable; running headless HTTP mode ($totalTabs virtual tabs)..."
             )
             runHeadlessHttpLoop(profile, urls, totalTabs)
@@ -1002,7 +1087,7 @@ class AutomationCoordinator(
     private suspend fun executeHeadlessHttpVisit(url: String, profile: AutomationProfile): String =
         withContext(Dispatchers.IO) {
             try {
-                val activeProxy = proxyExecutionCoordinator?.activeProxy?.value
+                val activeProxy = activeVerifiedProxy ?: proxyExecutionCoordinator?.activeProxy?.value
                 val clientBuilder = okhttp3.OkHttpClient.Builder()
                     .connectTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
                     .readTimeout(12, java.util.concurrent.TimeUnit.SECONDS)

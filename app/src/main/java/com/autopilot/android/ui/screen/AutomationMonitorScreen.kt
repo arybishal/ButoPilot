@@ -189,14 +189,34 @@ fun AutomationMonitorScreen(
                             }
                         }
 
-                        TextButton(
-                            onClick = { coordinator.rotateProxyNow() },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Rotate Now", style = MaterialTheme.typography.labelSmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            TextButton(
+                                onClick = { coordinator.rotateProxyNow() },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Rotate Proxy", style = MaterialTheme.typography.labelSmall)
+                            }
+                            TextButton(
+                                onClick = { coordinator.rotateSpoofDeviceNow() },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Icon(Icons.Default.PhoneAndroid, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Rotate Device", style = MaterialTheme.typography.labelSmall)
+                            }
                         }
+                    }
+
+                    engineState.currentSpoofDeviceLabel?.let { deviceLabel ->
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Spoof Device: $deviceLabel",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                 }
             }
@@ -230,8 +250,56 @@ fun AutomationMonitorScreen(
                 when {
                     engineState.status == ProfileStatus.IDLE ->
                         Text("Automation idle. Start a profile to preview browser execution.", color = MaterialTheme.colorScheme.outline)
-                    activeWebView == null ->
-                        Text("Waiting for the first browser tab to load...", color = MaterialTheme.colorScheme.outline)
+                    engineState.isHeadlessHttpMode -> {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Public,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                                Text(
+                                    text = "Headless HTTP Mode Active",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = engineState.statusMessage,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "Completed Requests: ${engineState.totalActions} • Virtual Tabs: ${engineState.totalTabs}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+                    activeWebView == null -> {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.5.dp)
+                            Text(
+                                text = engineState.statusMessage.ifBlank { "Initializing browser tab..." },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    }
                     else -> {
                         val webView = activeWebView!!
                         key(webView) {
