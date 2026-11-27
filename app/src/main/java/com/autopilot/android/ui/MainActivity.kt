@@ -71,6 +71,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         applyImmersiveFullscreen()
+        enable120HzRefreshRate()
         com.autopilot.android.feature.automation.service.AutomationService.startKeepAlive(this)
         requestUnrestrictedBatteryIfNeeded()
 
@@ -124,7 +125,9 @@ class MainActivity : ComponentActivity() {
                 NavHost(
                     navController = navController,
                     startDestination = "root",
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
                 ) {
                     // --- 1. Root Screen with Horizontal Pager & Floating Rounded Menu ---
                     composable("root") {
@@ -139,7 +142,7 @@ class MainActivity : ComponentActivity() {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .padding(bottom = 74.dp)
+                                        .padding(bottom = 86.dp)
                                 ) {
                                     val activeProxy by app.proxyExecutionCoordinator.activeProxy.collectAsState()
                                     when (page) {
@@ -408,12 +411,39 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         applyImmersiveFullscreen()
+        enable120HzRefreshRate()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
             applyImmersiveFullscreen()
+        }
+    }
+
+    private fun enable120HzRefreshRate() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        val targetDisplay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            display
+        } else {
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay
+        } ?: return
+
+        val currentMode = targetDisplay.mode
+        val nativeModes = targetDisplay.supportedModes.filter {
+            it.physicalWidth == currentMode.physicalWidth &&
+                it.physicalHeight == currentMode.physicalHeight
+        }
+        val preferredMode = nativeModes
+            .filter { it.refreshRate >= 119f }
+            .minByOrNull { kotlin.math.abs(it.refreshRate - 120f) }
+            ?: nativeModes.maxByOrNull { it.refreshRate }
+            ?: return
+
+        window.attributes = window.attributes.apply {
+            preferredDisplayModeId = preferredMode.modeId
+            preferredRefreshRate = preferredMode.refreshRate
         }
     }
 

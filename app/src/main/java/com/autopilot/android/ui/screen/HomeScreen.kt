@@ -271,7 +271,7 @@ fun HomeScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Welcome back, The 👋",
+                            text = "Welcome back",
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF0F172A)

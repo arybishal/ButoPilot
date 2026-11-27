@@ -352,6 +352,7 @@ fun ProxyListScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
+            contentPadding = PaddingValues(bottom = 88.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // --- 1. Metrics Overview Header Dashboard ---

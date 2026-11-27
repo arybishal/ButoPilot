@@ -12,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.autopilot.android.domain.model.ProfileStatus
@@ -36,8 +37,10 @@ fun AutomationMonitorScreen(
             TopAppBar(
                 title = {
                     Text(
-                        if (engineState.isMultiRun) "Multi-Run (${engineState.activeProfiles.size} Automations)"
-                        else engineState.profile?.name ?: "Live Monitor"
+                        text = if (engineState.isMultiRun) "Multi-Run (${engineState.activeProfiles.size} Automations)"
+                        else engineState.profile?.name ?: "Live Monitor",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 },
                 navigationIcon = {
@@ -82,18 +85,18 @@ fun AutomationMonitorScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceAround
+                        .padding(start = 12.dp, end = 12.dp, top = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Elapsed", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                         Text("${engineState.elapsedSeconds}s", fontWeight = FontWeight.Bold)
                     }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Actions", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                         Text("${engineState.totalActions}", fontWeight = FontWeight.Bold)
                     }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Memory Free", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                         Text("${engineState.memoryMb} MB", fontWeight = FontWeight.Bold)
                     }
@@ -102,18 +105,20 @@ fun AutomationMonitorScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Scrolled", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                         Text("${engineState.totalScrolls}", fontWeight = FontWeight.Bold)
                     }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Clicked", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                         Text("${engineState.totalClicks}", fontWeight = FontWeight.Bold)
                     }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Tasks Done", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                         Text("${engineState.totalTasksDone}", fontWeight = FontWeight.Bold)
                     }
