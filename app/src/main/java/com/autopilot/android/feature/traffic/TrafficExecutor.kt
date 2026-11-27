@@ -100,29 +100,38 @@ class TrafficExecutor(
         val checker = proxyHealthChecker
         val coordinator = proxyExecutionCoordinator
         if (repo == null || checker == null || coordinator == null) {
-            executeRun(runId, workAttempt, client)
+            executeRun(runId, workAttempt, listOf(client))
             return@withContext
         }
 
         coordinator.activeProxy.value?.let { active ->
-            executeRun(runId, workAttempt, clientFor(active))
+            executeRun(runId, workAttempt, listOf(clientFor(active), client))
             return@withContext
         }
 
-        // Fast parallel probe (max 3 candidates, 2s timeout) prioritizing already-healthy proxies.
+        // Fast parallel probe (max 6 candidates, 2s timeout) prioritizing healthy & HTTPS-capable proxies.
+        val isHttpsTarget = run.websiteUrl.startsWith("https://", ignoreCase = true)
         val candidates = repo.getAllProxies()
             .filter { it.enabled }
-            .sortedBy {
-                when (it.lastHealthStatus) {
-                    ProxyHealthStatus.HEALTHY -> 0
-                    ProxyHealthStatus.UNTESTED -> 1
-                    else -> 2
-                }
-            }
-            .take(3)
+            .sortedWith(
+                compareBy<ProxyConfiguration>(
+                    {
+                        when (it.lastHealthStatus) {
+                            ProxyHealthStatus.HEALTHY -> 0
+                            ProxyHealthStatus.UNTESTED -> 1
+                            else -> 2
+                        }
+                    },
+                    {
+                        if (isHttpsTarget && it.protocol == ProxyProtocol.HTTP) 1 else 0
+                    },
+                    { it.lastLatencyMs ?: Long.MAX_VALUE }
+                )
+            )
+            .take(6)
 
-        val proxy: ProxyConfiguration? = if (candidates.isEmpty()) {
-            null
+        val healthyProxies: List<ProxyConfiguration> = if (candidates.isEmpty()) {
+            emptyList()
         } else {
             coroutineScope {
                 candidates.map { candidate ->
@@ -140,41 +149,44 @@ class TrafficExecutor(
                         )
                         if (result?.status == ProxyHealthStatus.HEALTHY) candidate else null
                     }
-                }.awaitAll().firstOrNull { it != null }
+                }.awaitAll().filterNotNull()
             }
         }
 
-        if (proxy == null) {
+        if (healthyProxies.isEmpty()) {
             // Fall back to direct connection so Traffic Generator still runs when free proxies are offline.
             executeRun(
                 runId = runId,
                 workAttempt = workAttempt,
-                client = client,
+                clientPool = listOf(client),
                 initialNote = "No verified proxy available; running with direct connection"
             )
             return@withContext
         }
 
+        val clientPool = healthyProxies.map { clientFor(it) } + listOf(client)
+
         if (run.mode == TrafficMode.PAGE_REQUEST) {
-            // OkHttp uses clientFor(proxy) directly without needing WebView ProxyController.
-            executeRun(runId, workAttempt, clientFor(proxy))
+            // OkHttp rotates across healthy proxy clients and falls back to direct on Connection reset.
+            executeRun(runId, workAttempt, clientPool)
             return@withContext
         }
 
-        coordinator.acquireAndApply(proxy)
+        val primaryProxy = healthyProxies.first()
+        coordinator.acquireAndApply(primaryProxy)
         if (!coordinator.isProxyActive.value) {
             coordinator.resetAndRelease()
-            // WebView proxy override unsupported on this device; still route HTTP requests via proxy client.
+            // WebView proxy override unsupported on this device; still route HTTP requests via proxy pool.
             executeRun(
                 runId = runId,
                 workAttempt = workAttempt,
-                client = clientFor(proxy),
+                clientPool = clientPool,
                 initialNote = "WebView proxy override unavailable; using HTTP proxy engine"
             )
             return@withContext
         }
         try {
-            executeRun(runId, workAttempt, clientFor(proxy))
+            executeRun(runId, workAttempt, clientPool)
         } finally {
             coordinator.resetAndRelease()
         }
@@ -196,6 +208,8 @@ class TrafficExecutor(
         val type = if (proxy.protocol == ProxyProtocol.SOCKS5) java.net.Proxy.Type.SOCKS else java.net.Proxy.Type.HTTP
         val builder = client.newBuilder()
             .proxy(java.net.Proxy(type, InetSocketAddress(proxy.host, proxy.port)))
+            // Disable keep-alive reuse for free proxies that abruptly reset idle sockets
+            .connectionPool(okhttp3.ConnectionPool(0, 1, TimeUnit.MILLISECONDS))
         val username = proxy.credentials?.username
         val password = proxy.credentials?.password
         if (!username.isNullOrBlank() && !password.isNullOrBlank()) {
@@ -212,7 +226,7 @@ class TrafficExecutor(
     private suspend fun executeRun(
         runId: String,
         workAttempt: Int,
-        client: OkHttpClient,
+        clientPool: List<OkHttpClient>,
         initialNote: String? = null
     ) = withContext(Dispatchers.IO) {
         var run = repository.getRun(runId) ?: return@withContext
@@ -246,6 +260,7 @@ class TrafficExecutor(
         var lastError = run.lastError
         val limiter = RateLimiter(run.speed.eventsPerMinute)
         val nextIndex = AtomicInteger(submitted + failed)
+        val clientCursor = AtomicInteger(0)
         val counterLock = Mutex()
 
         try {
@@ -258,7 +273,7 @@ class TrafficExecutor(
 
                             val url = buildUrl(run, index)
                             limiter.acquire()
-                            val outcome = sendWithRetry(run, url, client)
+                            val outcome = sendWithRetry(run, url, clientPool, clientCursor)
 
                             counterLock.withLock {
                                 if (outcome.success) {
@@ -310,21 +325,31 @@ class TrafficExecutor(
         }
     }
 
-    private suspend fun sendWithRetry(run: TrafficRun, url: String, client: OkHttpClient): Attempt {
+    private suspend fun sendWithRetry(
+        run: TrafficRun,
+        url: String,
+        clientPool: List<OkHttpClient>,
+        clientCursor: AtomicInteger
+    ): Attempt {
+        val poolSize = clientPool.size.coerceAtLeast(1)
+        val startClient = clientPool[Math.floorMod(clientCursor.get(), poolSize)]
+
         if ((run.mode == TrafficMode.REAL_BROWSER || run.mode == TrafficMode.ORGANIC_SEARCH) && context != null) {
             return executeBrowserVisit(
                 url = url,
-                client = client,
+                client = startClient,
                 category = run.deviceCategory,
                 organicSearch = run.mode == TrafficMode.ORGANIC_SEARCH
             )
         }
         var attempt = 0
-        var result = perform(url, client, run.deviceCategory, run.mode == TrafficMode.ORGANIC_SEARCH)
+        var result = perform(url, startClient, run.deviceCategory, run.mode == TrafficMode.ORGANIC_SEARCH)
         while (!result.success && result.transient && attempt < 2) {
             attempt++
-            delay(500L * (1 shl (attempt - 1)))
-            result = perform(url, client, run.deviceCategory, run.mode == TrafficMode.ORGANIC_SEARCH)
+            val nextIdx = if (poolSize > 1) clientCursor.incrementAndGet() else 0
+            val nextClient = clientPool[Math.floorMod(nextIdx, poolSize)]
+            delay(300L * attempt)
+            result = perform(url, nextClient, run.deviceCategory, run.mode == TrafficMode.ORGANIC_SEARCH)
         }
         return result
     }
