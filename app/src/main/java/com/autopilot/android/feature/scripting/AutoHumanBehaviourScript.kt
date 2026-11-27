@@ -38,6 +38,7 @@ object AutoHumanBehaviourScript {
     const direction = Math.random() > 0.2 ? 1 : -1; // 80% down, 20% up
     const distance = getRandomInt(CONFIG.scrollStepMin, CONFIG.scrollStepMax) * direction;
     window.scrollBy({ top: distance, behavior: 'smooth' });
+    window.__autoBotScrolls = (window.__autoBotScrolls || 0) + 1;
   }
 
   function performRandomClick() {
@@ -59,7 +60,10 @@ object AutoHumanBehaviourScript {
     if (validTargets.length > 0) {
       const target = validTargets[getRandomInt(0, validTargets.length - 1)];
       target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      setTimeout(() => { target.click(); }, 500);
+      setTimeout(() => {
+        target.click();
+        window.__autoBotClicks = (window.__autoBotClicks || 0) + 1;
+      }, 500);
     } else {
       performScroll();
     }

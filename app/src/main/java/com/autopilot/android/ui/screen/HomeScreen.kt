@@ -714,6 +714,38 @@ fun HomeScreen(
                         )
                     }
 
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Secondary Activity Metrics Strip: Scrolled | Clicked | Tasks Done
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFFF8FAFC))
+                            .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
+                            .padding(vertical = 8.dp, horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        ActiveEngineMetricItem(
+                            label = "Scrolled",
+                            value = "${engineState.totalScrolls}",
+                            color = Color(0xFF0284C7)
+                        )
+                        Box(modifier = Modifier.width(1.dp).height(22.dp).background(Color(0xFFE2E8F0)))
+                        ActiveEngineMetricItem(
+                            label = "Clicked",
+                            value = "${engineState.totalClicks}",
+                            color = Color(0xFFD97706)
+                        )
+                        Box(modifier = Modifier.width(1.dp).height(22.dp).background(Color(0xFFE2E8F0)))
+                        ActiveEngineMetricItem(
+                            label = "Tasks Done",
+                            value = "${engineState.totalTasksDone}",
+                            color = Color(0xFF15803D)
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(12.dp))
 
                     // Live Status ticker message

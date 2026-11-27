@@ -39,6 +39,9 @@ data class EngineState(
     val totalTabs: Int = 1,
     val tabStates: List<TabState> = emptyList(),
     val totalActions: Int = 0,
+    val totalScrolls: Int = 0,
+    val totalClicks: Int = 0,
+    val totalTasksDone: Int = 0,
     val elapsedSeconds: Long = 0,
     val statusMessage: String = "Idle",
     val memoryMb: Long = 0,
@@ -79,6 +82,9 @@ class AutomationCoordinator(
     private var activeProfilesList: List<AutomationProfile> = emptyList()
     private var startTimeMillis: Long = 0
     private var totalActionsExecuted = 0
+    private var totalScrollsExecuted = 0
+    private var totalClicksExecuted = 0
+    private var totalTasksExecuted = 0
     var currentExecutionId: String = UUID.randomUUID().toString()
         private set
 
@@ -150,6 +156,9 @@ class AutomationCoordinator(
         isPaused = false
         startTimeMillis = System.currentTimeMillis()
         totalActionsExecuted = 0
+        totalScrollsExecuted = 0
+        totalClicksExecuted = 0
+        totalTasksExecuted = 0
         currentExecutionId = UUID.randomUUID().toString()
 
         eventTracker?.recordEvent(
@@ -305,6 +314,9 @@ class AutomationCoordinator(
         isPaused = false
         startTimeMillis = System.currentTimeMillis()
         totalActionsExecuted = 0
+        totalScrollsExecuted = 0
+        totalClicksExecuted = 0
+        totalTasksExecuted = 0
         currentExecutionId = UUID.randomUUID().toString()
 
         val totalTabsSum = profiles.sumOf { it.tabCount.coerceIn(1, 200) }.coerceIn(1, 200)
@@ -1021,6 +1033,25 @@ class AutomationCoordinator(
                     executeDeepScroll(profile, currentTab)
                 }
                 ExecutionMode.AUTO_HUMAN_BEHAVIOUR -> {
+                    withContext(Dispatchers.Main) {
+                        webViewManager.executeJavaScript(
+                            currentTab,
+                            "(function(){var s=window.__autoBotScrolls||0;var c=window.__autoBotClicks||0;window.__autoBotScrolls=0;window.__autoBotClicks=0;return s+','+c;})();"
+                        ) { res ->
+                            val cleaned = res?.trim('"') ?: ""
+                            val parts = cleaned.split(",")
+                            val s = parts.getOrNull(0)?.toIntOrNull() ?: 0
+                            val c = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                            if (s > 0 || c > 0) {
+                                totalScrollsExecuted += s
+                                totalClicksExecuted += c
+                                _engineState.value = _engineState.value.copy(
+                                    totalScrolls = totalScrollsExecuted,
+                                    totalClicks = totalClicksExecuted
+                                )
+                            }
+                        }
+                    }
                     delay(1000L)
                 }
                 ExecutionMode.TAB_SWITCHING -> {
@@ -1033,8 +1064,12 @@ class AutomationCoordinator(
             }
 
             totalActionsExecuted++
+            totalTasksExecuted++
             _engineState.value = _engineState.value.copy(
                 totalActions = totalActionsExecuted,
+                totalScrolls = totalScrollsExecuted,
+                totalClicks = totalClicksExecuted,
+                totalTasksDone = totalTasksExecuted,
                 activeTabIndex = currentTab
             )
         }
@@ -1064,8 +1099,12 @@ class AutomationCoordinator(
             val targetUrl = urls[currentTab % urls.size]
             val resultLabel = executeHeadlessHttpVisit(targetUrl, profile)
             totalActionsExecuted++
+            totalTasksExecuted++
             _engineState.value = _engineState.value.copy(
                 totalActions = totalActionsExecuted,
+                totalScrolls = totalScrollsExecuted,
+                totalClicks = totalClicksExecuted,
+                totalTasksDone = totalTasksExecuted,
                 activeTabIndex = currentTab,
                 statusMessage = "Headless HTTP Tab $currentTab: $resultLabel"
             )
@@ -1144,6 +1183,8 @@ class AutomationCoordinator(
         withContext(Dispatchers.Main) {
             webViewManager.performScrollBy(tabIndex, 400)
         }
+        totalScrollsExecuted++
+        _engineState.value = _engineState.value.copy(totalScrolls = totalScrollsExecuted)
 
         val refreshDelayMs = IntervalCalculator.getNextRefreshDelayMs(
             profile.refreshIntervalSec,
@@ -1175,6 +1216,8 @@ class AutomationCoordinator(
                     )
                 }
             }
+            totalScrollsExecuted++
+            _engineState.value = _engineState.value.copy(totalScrolls = totalScrollsExecuted)
             delay(scrollIntervalMs)
         }
 
@@ -1195,6 +1238,8 @@ class AutomationCoordinator(
             webViewManager.selectTab(tabIndex)
             webViewManager.performScrollBy(tabIndex, 300)
         }
+        totalScrollsExecuted++
+        _engineState.value = _engineState.value.copy(totalScrolls = totalScrollsExecuted)
 
         val switchDelayMs = IntervalCalculator.getNextScrollDelayMs(
             profile.scrollIntervalSec,
