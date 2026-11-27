@@ -199,7 +199,26 @@ fun ProxyRegionScreen(
                 .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // --- 1. Top Health Summary Card ---
+            // --- 1. Proxy Management Action ---
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    TextButton(onClick = onNavigateToProxyManager) {
+                        Text(
+                            text = "Manage All Proxies & Import List →",
+                            color = Color.Black,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+
+            // --- 2. Top Health Summary Card ---
             item {
                 Spacer(modifier = Modifier.height(4.dp))
                 Card(
@@ -252,7 +271,7 @@ fun ProxyRegionScreen(
                 }
             }
 
-            // --- 2. Explanatory Subtitle Text ---
+            // --- 3. Explanatory Subtitle Text ---
             item {
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
@@ -264,7 +283,7 @@ fun ProxyRegionScreen(
                 Spacer(modifier = Modifier.height(4.dp))
             }
 
-            // --- 3. Region Selection Cards ---
+            // --- 4. Region Selection Cards ---
             items(regionItems, key = { it.code }) { item ->
                 val isSelected = selectedRegionCode == item.code
 
@@ -347,26 +366,6 @@ fun ProxyRegionScreen(
                 }
             }
 
-            // --- 4. Manage All Proxies Action ---
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    TextButton(onClick = onNavigateToProxyManager) {
-                        Text(
-                            text = "Manage All Proxies & Import List →",
-                            color = Color.Black,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            }
         }
     }
 }
