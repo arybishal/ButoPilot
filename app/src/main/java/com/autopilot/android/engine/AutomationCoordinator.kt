@@ -10,6 +10,7 @@ import com.autopilot.android.domain.model.ExecutionHistoryItem
 import com.autopilot.android.domain.model.ExecutionMode
 import com.autopilot.android.domain.model.ProfileStatus
 import com.autopilot.android.domain.model.TabState
+import com.autopilot.android.domain.model.proxy.CountryCodeValidator
 import com.autopilot.android.domain.model.proxy.ProxyConfiguration
 import com.autopilot.android.domain.model.proxy.ProxyHealthStatus
 import com.autopilot.android.domain.model.proxy.ProxyProtocol
@@ -44,6 +45,7 @@ data class EngineState(
     val isMultiRun: Boolean = false,
     val currentProxyName: String? = null,
     val currentProxyLocation: String? = null,
+    val currentProxyCountryCode: String? = null,
     val nextProxyRotationSeconds: Long = 600L
 )
 
@@ -481,6 +483,7 @@ class AutomationCoordinator(
     private suspend fun applyVerifiedProxy(proxy: ProxyConfiguration, relock: Boolean = true): Boolean {
         val coordinator = proxyExecutionCoordinator ?: return true
         var location = proxy.getDisplayRegion().takeIf { it != "Unknown" }
+        var countryCode = CountryCodeValidator.normalize(proxy.region)
 
         val checker = proxyHealthChecker
         if (checker != null) {
@@ -495,6 +498,7 @@ class AutomationCoordinator(
                 return false
             }
             location = result.locationLabel
+            countryCode = CountryCodeValidator.normalize(result.exitCountry) ?: countryCode
         }
 
         if (relock) coordinator.acquireAndApply(proxy) else coordinator.updateProxy(proxy)
@@ -503,7 +507,8 @@ class AutomationCoordinator(
         _engineState.value = _engineState.value.copy(
             statusMessage = "Connected through proxy: ${proxy.name} (${location ?: "location unknown"})",
             currentProxyName = "${proxy.name} (${proxy.protocol.displayName} ${proxy.host}:${proxy.port})",
-            currentProxyLocation = location
+            currentProxyLocation = location,
+            currentProxyCountryCode = countryCode
         )
         return true
     }
@@ -527,7 +532,8 @@ class AutomationCoordinator(
         _engineState.value = _engineState.value.copy(
             statusMessage = "No verified proxy available; running with direct connection (location not masked).",
             currentProxyName = null,
-            currentProxyLocation = null
+            currentProxyLocation = null,
+            currentProxyCountryCode = null
         )
         return true
     }

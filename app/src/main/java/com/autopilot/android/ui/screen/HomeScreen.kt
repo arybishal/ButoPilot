@@ -762,6 +762,25 @@ fun HomeScreen(
                                 fg = Color(0xFF92400E)
                             )
                         }
+                        if (active.enableFreeProxy) {
+                            HomeTagBadge(
+                                label = "Free Proxy",
+                                bg = Color(0xFFDCFCE7),
+                                fg = Color(0xFF15803D)
+                            )
+                        }
+                        val connectedProxyBadge = formatConnectedProxyCountryBadge(
+                            countryCode = engineState.currentProxyCountryCode,
+                            location = engineState.currentProxyLocation,
+                            isProxyConnected = engineState.currentProxyName != null
+                        )
+                        if (connectedProxyBadge != null) {
+                            HomeTagBadge(
+                                label = connectedProxyBadge,
+                                bg = Color(0xFFECFDF5),
+                                fg = Color(0xFF065F46)
+                            )
+                        }
                         if (engineState.currentProxyName != null) {
                             val mins = engineState.nextProxyRotationSeconds / 60
                             val secs = engineState.nextProxyRotationSeconds % 60
@@ -770,12 +789,6 @@ fun HomeScreen(
                                 label = "10m Proxy: $countdown",
                                 bg = Color(0xFFEFF6FF),
                                 fg = Color(0xFF1E40AF)
-                            )
-                        } else if (active.enableFreeProxy) {
-                            HomeTagBadge(
-                                label = "Free Proxy",
-                                bg = Color(0xFFDCFCE7),
-                                fg = Color(0xFF15803D)
                             )
                         }
                     }
@@ -1573,4 +1586,27 @@ private fun HomeTagBadge(
             softWrap = false
         )
     }
+}
+
+private fun formatConnectedProxyCountryBadge(
+    countryCode: String?,
+    location: String?,
+    isProxyConnected: Boolean
+): String? {
+    val normalizedCode = countryCode?.trim()?.uppercase()?.takeIf { it.length == 2 }
+    if (normalizedCode != null) {
+        val flag = getProxyCountryFlag(normalizedCode)
+        val countryName = java.util.Locale("", normalizedCode).displayCountry
+            .takeIf { it.isNotBlank() && !it.equals(normalizedCode, ignoreCase = true) }
+            ?: normalizedCode
+        return "$flag $countryName"
+    }
+
+    val cleanLocation = location?.trim()?.takeIf { it.isNotBlank() && !it.equals("Unknown", ignoreCase = true) }
+    val globe = String(Character.toChars(0x1F310))
+    if (cleanLocation != null) {
+        return "$globe $cleanLocation"
+    }
+
+    return if (isProxyConnected) "$globe Global" else null
 }
