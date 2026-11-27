@@ -387,7 +387,12 @@ class TrafficExecutor(
         val searchReferer = if (organicSearch) buildSearchReferrer(url) else getRandomReferrer()
         val stealthScript = buildStealthScript()
         val humanScrollScript = buildHumanBehaviorScript()
-        val webViewAttempt = withTimeoutOrNull(22_000L) {
+        val isMobileDevice = browserUserAgent.contains("Mobile", ignoreCase = true) ||
+            browserUserAgent.contains("Android", ignoreCase = true) ||
+            browserUserAgent.contains("iPhone", ignoreCase = true)
+        val viewportWidth = if (isMobileDevice) 412 else 1366
+        val viewportHeight = if (isMobileDevice) 915 else 768
+        val webViewAttempt = withTimeoutOrNull(26_000L) {
             suspendCancellableCoroutine<Attempt> { continuation ->
                 val mainHandler = Handler(Looper.getMainLooper())
                 var webViewRef: WebView? = null
@@ -425,6 +430,11 @@ class TrafficExecutor(
                         mainHandler.postDelayed(timeout, 15_000L)
 
                         webView.apply {
+                            // Give unattached WebView a real viewport and active timers so GTM/GA4 & scroll scripts run
+                            layout(0, 0, viewportWidth, viewportHeight)
+                            onResume()
+                            resumeTimers()
+
                             settings.apply {
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
@@ -438,11 +448,19 @@ class TrafficExecutor(
 
                             val cookieManager = CookieManager.getInstance()
                             cookieManager.setAcceptCookie(true)
+                            // Clear cookies per visit so GA4 generates a fresh _ga client ID per visitor
+                            cookieManager.removeAllCookies(null)
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
                                 cookieManager.setAcceptThirdPartyCookies(this, true)
                             }
+                            clearHistory()
 
                             webViewClient = object : WebViewClient() {
+                                override fun shouldOverrideUrlLoading(view: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
+                                    val target = request?.url?.toString() ?: return false
+                                    return !(target.startsWith("http://", ignoreCase = true) || target.startsWith("https://", ignoreCase = true))
+                                }
+
                                 override fun onPageStarted(view: WebView?, startedUrl: String?, favicon: android.graphics.Bitmap?) {
                                     super.onPageStarted(view, startedUrl, favicon)
                                     view?.evaluateJavascript(stealthScript, null)
@@ -455,8 +473,8 @@ class TrafficExecutor(
                                         mainHandler.removeCallbacks(timeout)
                                         view?.evaluateJavascript(stealthScript, null)
                                         view?.evaluateJavascript(humanScrollScript, null)
-                                        // Dwell 2.5s..4.0s for human scroll + GA4/GTM engagement beacons
-                                        val dwellMs = Random.nextLong(2500L, 4000L)
+                                        // Dwell 4.5s..6.5s so GTM -> gtag.js -> /g/collect beacons complete over proxy
+                                        val dwellMs = Random.nextLong(4500L, 6500L)
                                         mainHandler.postDelayed({
                                             try {
                                                 destroy()
@@ -466,6 +484,14 @@ class TrafficExecutor(
                                             }
                                         }, dwellMs)
                                     }
+                                }
+
+                                override fun onReceivedSslError(
+                                    view: WebView?,
+                                    handler: android.webkit.SslErrorHandler?,
+                                    error: android.net.http.SslError?
+                                ) {
+                                    handler?.proceed()
                                 }
 
                                 override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
@@ -589,6 +615,8 @@ class TrafficExecutor(
                     Object.defineProperty(navigator, 'languages', { get: function() { return ['en-US', 'en']; } });
                     Object.defineProperty(navigator, 'hardwareConcurrency', { get: function() { return 8; } });
                     Object.defineProperty(navigator, 'deviceMemory', { get: function() { return 8; } });
+                    Object.defineProperty(document, 'hidden', { get: function() { return false; } });
+                    Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; } });
                 } catch (e) {}
             })();
         """.trimIndent()
