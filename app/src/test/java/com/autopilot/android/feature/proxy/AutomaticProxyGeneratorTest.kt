@@ -1,7 +1,9 @@
 package com.autopilot.android.feature.proxy
 
 import com.autopilot.android.domain.model.proxy.ProxyConfiguration
+import com.autopilot.android.domain.model.proxy.ProxyHealthStatus
 import com.autopilot.android.domain.model.proxy.ProxyProtocol
+import com.autopilot.android.domain.model.proxy.ProxyTestResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -176,5 +178,26 @@ class AutomaticProxyGeneratorTest {
         assertTrue(top.intersect(mid).isEmpty())
         assertTrue(top.intersect(low).isEmpty())
         assertTrue(mid.intersect(low).isEmpty())
+    }
+
+    @Test
+    fun `keepHealthyProxies keeps only healthy results and stamps status`() {
+        val healthy = makeProxy("1.1.1.1")
+        val unhealthy = makeProxy("2.2.2.2")
+        val timeout = makeProxy("3.3.3.3")
+        val untested = makeProxy("4.4.4.4")
+
+        val results = mapOf(
+            healthy.id to ProxyTestResult(healthy.id, ProxyHealthStatus.HEALTHY, 120L),
+            unhealthy.id to ProxyTestResult(unhealthy.id, ProxyHealthStatus.UNHEALTHY, 50L),
+            timeout.id to ProxyTestResult(timeout.id, ProxyHealthStatus.TIMEOUT, 5000L)
+        )
+
+        val kept = keepHealthyProxies(listOf(healthy, unhealthy, timeout, untested), results)
+
+        assertEquals(1, kept.size)
+        assertEquals("1.1.1.1", kept.first().host)
+        assertEquals(ProxyHealthStatus.HEALTHY, kept.first().lastHealthStatus)
+        assertEquals(120L, kept.first().lastLatencyMs)
     }
 }

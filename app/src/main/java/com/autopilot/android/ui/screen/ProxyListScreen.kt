@@ -40,11 +40,13 @@ import com.autopilot.android.domain.model.proxy.ProxyConfiguration
 import com.autopilot.android.domain.model.proxy.ProxyCredentials
 import com.autopilot.android.domain.model.proxy.ProxyHealthStatus
 import com.autopilot.android.domain.model.proxy.ProxyProtocol
+import com.autopilot.android.domain.model.proxy.ProxyTestResult
 import com.autopilot.android.feature.proxy.AutomaticProxyGenerator
 import com.autopilot.android.feature.proxy.ProxyCompatibilityChecker
 import com.autopilot.android.feature.proxy.ProxyGenerationRequest
 import com.autopilot.android.feature.proxy.ProxyGenerationResult
 import com.autopilot.android.feature.proxy.ProxyHealthChecker
+import com.autopilot.android.feature.proxy.keepHealthyProxies
 import com.autopilot.android.feature.proxy.ProxySourceManager
 import com.autopilot.android.feature.proxy.ProxyTier
 import com.autopilot.android.feature.proxy.source.GeonodeFetchResult
@@ -2122,8 +2124,11 @@ fun AutomaticProxyGeneratorDialog(
     var quantityText by remember { mutableStateOf(AutomaticProxyGenerator.DEFAULT_QUANTITY.toString()) }
     var selectedProtocol by remember { mutableStateOf<ProxyProtocol?>(null) }
     var autoTestAfterGenerate by remember { mutableStateOf(false) }
+    var onlyAddHealthy by remember { mutableStateOf(true) }
+    val healthChecker = remember { ProxyHealthChecker() }
 
     var isGenerating by remember { mutableStateOf(false) }
+    var healthCheckProgress by remember { mutableStateOf<String?>(null) }
     var generationResult by remember { mutableStateOf<ProxyGenerationResult?>(null) }
 
     val parsedQuantity = quantityText.toIntOrNull()
@@ -2486,6 +2491,45 @@ fun AutomaticProxyGeneratorDialog(
                             color = Color(0xFF334155)
                         )
                     }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(enabled = !isGenerating) {
+                                onlyAddHealthy = !onlyAddHealthy
+                            }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = onlyAddHealthy,
+                            onCheckedChange = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                "Only add healthy proxies (live check)",
+                                fontSize = 12.sp,
+                                color = Color(0xFF334155)
+                            )
+                            Text(
+                                "Tests each generated proxy before adding; unhealthy ones are discarded",
+                                fontSize = 10.sp,
+                                color = Color(0xFF64748B)
+                            )
+                        }
+                    }
+
+                    healthCheckProgress?.let {
+                        Text(
+                            text = it,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF2563EB)
+                        )
+                    }
                 }
 
                 generationResult?.let { res ->
@@ -2510,6 +2554,7 @@ fun AutomaticProxyGeneratorDialog(
                     coroutineScope.launch {
                         isGenerating = true
                         generationResult = null
+                        healthCheckProgress = null
                         val generator = AutomaticProxyGenerator()
                         val res = generator.generate(
                             request = ProxyGenerationRequest(
@@ -2520,11 +2565,29 @@ fun AutomaticProxyGeneratorDialog(
                             ),
                             existingProxies = existingProxies
                         )
+                        var finalProxies = res.generatedProxies
+                        if (res.success && onlyAddHealthy && finalProxies.isNotEmpty()) {
+                            val results = mutableMapOf<String, ProxyTestResult>()
+                            for ((index, chunk) in finalProxies.chunked(8).withIndex()) {
+                                healthCheckProgress = "Live checking proxies (${index * 8 + chunk.size}/${finalProxies.size})..."
+                                chunk.map { proxy ->
+                                    async(Dispatchers.IO) { proxy.id to healthChecker.checkHealth(proxy) }
+                                }.awaitAll().forEach { (id, result) -> results[id] = result }
+                            }
+                            finalProxies = keepHealthyProxies(finalProxies, results)
+                        }
+                        healthCheckProgress = null
                         isGenerating = false
-                        if (res.success && res.generatedProxies.isNotEmpty()) {
-                            onGenerated(res.generatedProxies, autoTestAfterGenerate, res.sourcesUsed)
+                        if (res.success && finalProxies.isNotEmpty()) {
+                            onGenerated(finalProxies, autoTestAfterGenerate && !onlyAddHealthy, res.sourcesUsed)
                         } else {
-                            generationResult = res
+                            generationResult = if (res.success && onlyAddHealthy && res.generatedProxies.isNotEmpty()) {
+                                res.copy(
+                                    errorMessage = "No healthy proxies found among ${res.generatedProxies.size} generated. Try another tier, country or quantity."
+                                )
+                            } else {
+                                res
+                            }
                         }
                     }
                 },
@@ -2537,7 +2600,7 @@ fun AutomaticProxyGeneratorDialog(
                         color = MaterialTheme.colorScheme.onPrimary
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Generating...")
+                    Text(healthCheckProgress ?: "Generating...")
                 } else {
                     Text("Generate (${parsedQuantity ?: quantity})")
                 }

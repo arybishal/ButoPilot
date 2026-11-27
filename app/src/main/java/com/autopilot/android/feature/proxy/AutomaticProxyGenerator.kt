@@ -3,7 +3,9 @@ package com.autopilot.android.feature.proxy
 import com.autopilot.android.domain.model.proxy.CountryCodeValidator
 import com.autopilot.android.domain.model.proxy.CountryFilterRule
 import com.autopilot.android.domain.model.proxy.ProxyConfiguration
+import com.autopilot.android.domain.model.proxy.ProxyHealthStatus
 import com.autopilot.android.domain.model.proxy.ProxyProtocol
+import com.autopilot.android.domain.model.proxy.ProxyTestResult
 import com.autopilot.android.feature.proxy.source.GeonodeProxySourceAdapter
 import com.autopilot.android.feature.proxy.source.ProxiflyProxySourceAdapter
 import kotlinx.coroutines.Dispatchers
@@ -50,6 +52,20 @@ data class ProxyGenerationResult(
     val sourcesUsed: List<String>,
     val errorMessage: String? = null
 )
+
+/** Keeps only live-healthy proxies, stamped with their probe result so the managed list shows the real status. */
+internal fun keepHealthyProxies(
+    candidates: List<ProxyConfiguration>,
+    results: Map<String, ProxyTestResult>
+): List<ProxyConfiguration> = candidates.mapNotNull { proxy ->
+    val result = results[proxy.id]?.takeIf { it.status == ProxyHealthStatus.HEALTHY } ?: return@mapNotNull null
+    proxy.copy(
+        lastHealthStatus = result.status,
+        lastLatencyMs = result.latencyMs,
+        lastTestedAt = result.timestamp,
+        lastErrorMessage = result.errorMessage
+    )
+}
 
 class AutomaticProxyGenerator(
     private val proxiflyAdapter: ProxiflyProxySourceAdapter = ProxiflyProxySourceAdapter(),
